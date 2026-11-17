@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Protocol
+from typing import NamedTuple, Protocol
 
 import numpy as np
 from sklearn.metrics import (
@@ -108,20 +108,26 @@ class TemporalStability:
         return float(np.mean(stabilities))
 
 
-def segments(labels: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+class Segments(NamedTuple):
+    labels: np.ndarray
+    starts: np.ndarray
+    ends: np.ndarray
+
+
+def segments(labels: np.ndarray) -> Segments:
     labels = np.asarray(labels)
     if labels.size == 0:
         empty = np.array([], dtype=int)
-        return labels[:0], empty, empty
+        return Segments(labels[:0], empty, empty)
     starts = np.flatnonzero(np.r_[True, labels[1:] != labels[:-1]])
     ends = np.r_[starts[1:], labels.size]
-    return labels[starts], starts, ends
+    return Segments(labels[starts], starts, ends)
 
 
 class EditScore:
     def compute(self, y_true: np.ndarray, y_pred: np.ndarray) -> float:
-        true_segments, _, _ = segments(y_true)
-        pred_segments, _, _ = segments(y_pred)
+        true_segments = segments(y_true).labels
+        pred_segments = segments(y_pred).labels
         longest = max(len(true_segments), len(pred_segments))
         if longest == 0:
             return 1.0

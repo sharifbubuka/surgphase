@@ -1,144 +1,177 @@
-# Sample video frames
+<div align="center">
 
-Run the frame sampler through Poe, passing the script's CLI options as needed:
+# SurgPhase
+
+**Surgical phase recognition with surgical vision-language and video foundation models**
+
+[![Python 3.11](https://img.shields.io/badge/python-3.11-blue.svg)](https://www.python.org/downloads/release/python-3110/)
+[![PyTorch](https://img.shields.io/badge/PyTorch-2.x-ee4c2c.svg?logo=pytorch&logoColor=white)](https://pytorch.org/)
+[![uv](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json)](https://github.com/astral-sh/uv)
+[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+
+</div>
+
+## Overview
+
+SurgPhase benchmarks pretrained surgical foundation models for frame-level phase recognition:
+
+- **Zero-shot** classification from text prompts (vision-language models only).
+- **Frame heads** (linear / MLP) and a causal **MS-TCN sequence head** trained on frozen embeddings.
+- **Temporal decoding**: moving average, moving median, exponential moving average, HMM filtering (online) and Viterbi (offline).
+- **Evaluation** with leave-one-surgery-out splits: accuracy, macro F1, Jaccard, edit score and segmental F1@{10, 25, 50}.
+
+## Models
+
+| Model | Type | Frames per clip | Source |
+|---|---|---|---|
+| SurgVLP | Vision-language | 1 | [CAMMA-public/SurgVLP](https://github.com/CAMMA-public/SurgVLP) |
+| HecVL | Vision-language | 1 | [CAMMA-public/SurgVLP](https://github.com/CAMMA-public/SurgVLP) |
+| PeskaVLP | Vision-language | 1 | [CAMMA-public/SurgVLP](https://github.com/CAMMA-public/SurgVLP) |
+| SurgCLIP | Vision-language | 16 | `surgclip` package |
+| SurgMotion-300M | Video encoder | 64 | [CAIR-HKISI/SurgMotion](https://huggingface.co/CAIR-HKISI/SurgMotion) |
+
+SurgCLIP and SurgMotion weights download automatically. SurgVLP-family weights can be placed at `assets/models/weights/<model>.pth`.
+
+## Installation
+
+Requires Python 3.11, [uv](https://docs.astral.sh/uv/) and a CUDA GPU (recommended).
 
 ```sh
-uv run poe sample-frames --video assets/videos/pat01.mp4 assets/videos/pat02.mp4 --output assets/frames --fps 1 2 30
+git clone https://github.com/sharifbubuka/surgphase.git
+cd surgphase
+uv sync                    # add --group notebook to run the notebooks
 ```
 
-`--video` and `--fps` accept multiple values. Every video is sampled at every FPS, and frames are written to `<output>/<video stem>/fps<N>`, e.g. `assets/frames/pat01/fps30`.
+## Data
 
-Add `--overwrite` to replace existing frames. The script's FPS defaults to `1` when `--fps` is omitted.
+Videos, frames and annotations are not distributed. Use this layout:
 
-# Annotate sampled frames
-
-Run the frame annotator through Poe, passing the surgery metadata and paths:
-
-```sh
-uv run poe annotate-frames --surgery-id pat01 --annotation-id default \
-  --frames-dir assets/frames/pat01/fps1 --fps 1 \
-  --annotations assets/annotations/default/pat01.json \
-  --output-dir assets/annotations_csv
+```
+assets/
+├── videos/<surgery>.mp4
+├── frames/<surgery>/fps<N>/frame_000000.png       # created by sample-frames
+├── annotations/<group>/<surgery>.json             # phase intervals
+├── annotations/<group>/annotated_frames.csv       # created by annotate-frames
+└── phases/<group>.json                            # phase names and prompts
 ```
 
-The CSV is written to the output directory as
-`<surgery-id>_<annotation-id>_fps<fps>.csv`. To combine multiple frame groups
-in one CSV, provide multiple values for the group options:
+Phase groups: `default` and `merged6&7`.
+
+## Usage
+
+All entry points are [poe](https://poethepoet.natn.io/) tasks defined in `poe_tasks.toml`. Pass `--help` to any task to list its options.
+
+**1. Sample frames**
 
 ```sh
-uv run poe annotate-frames \
-  --surgery-id pat01 pat02 pat04 \
-  --annotation-id default \
-  --frames-dir assets/frames/pat01/fps1 assets/frames/pat02/fps1 assets/frames/pat04/fps1 \
-  --fps 1 \
+uv run poe sample-frames --video assets/videos/pat01.mp4 assets/videos/pat02.mp4 assets/videos/pat04.mp4 \
+  --output assets/frames --fps 1 15 30
+```
+
+**2. Annotate frames**
+
+```sh
+uv run poe annotate-frames --surgery-id pat01 pat02 pat04 --annotation-id default \
+  --frames-dir assets/frames/pat01/fps1 assets/frames/pat02/fps1 assets/frames/pat04/fps1 --fps 1 \
   --annotations assets/annotations/default/pat01.json assets/annotations/default/pat02.json assets/annotations/default/pat04.json \
-  --output-dir assets/annotations_csv
+  --output assets/annotations/default/annotated_frames.csv
 ```
 
-Values are matched by position, not combined as a Cartesian product. Each option
-must have either one value (reused for every group) or one value per group. To
-include multiple FPS values for a surgery, list a group for each FPS, repeating
-the other values as needed. A multi-group run writes `annotated_frames.csv` in
-the output directory. Running the command again with the same output filename
-replaces that CSV.
-
-Frames outside all annotation intervals are included with an empty `phase_id`
-field (CSV has no native null type). The script reports the number of unmatched
-frames for each group on standard error; these rows can be filtered downstream.
-The final intervals in the default and merged6&7 annotations extend to the
-respective video stream durations, retaining the final phase through the end
-of each video.
-
-The `frame_path` column contains the path to each image relative to the project
-root, for example `assets/frames/pat01/fps1/frame_000000.png`. Resolve it
-against the project root when reading it. Frames outside the project root use
-relative paths containing `..`.
-
-Each `frame_id` is a randomly generated UUID4. Within a CSV, repeated references
-to the same frame path share an ID and different frames have different IDs.
-IDs are generated anew on each run and are not stable across CSVs; use
-`frame_path` to match frames across runs. UUID4 collisions across separate runs
-are extremely unlikely but cannot be ruled out without persistent state.
-
-# Zip the project
-
-To download the project directly to your Mac, run these commands **on the Mac**,
-replacing `SERVER` with the SSH host or alias you use to connect:
-
-```sh
-scp SERVER:/home/bubuka/thesis/code/surgphase/scripts/download_project.sh ~/Downloads/
-bash ~/Downloads/download_project.sh SERVER
-```
-
-The archive is streamed to `~/Downloads/surgphase_project.zip`; an existing file
-at that location is not overwritten. If the project is elsewhere on the server,
-pass its absolute path as a second argument to `download_project.sh`.
-
-To create the archive on the server instead, run:
-
-```sh
-uv run poe zip-project
-```
-
-Both methods exclude dependencies, frames, videos, and model weights. The Poe
-task creates `surgphase_project.zip` in the project root on the server.
-# Encode frames
-
-Encode every annotated frame of each surgery with each model once and cache the
-embeddings under `results/embeddings/<model>/<preprocessor>/`:
+**3. Encode frames** (cached in `results/embeddings/`)
 
 ```sh
 uv run poe encode-frames --annotations assets/annotations/default/annotated_frames.csv \
   --phase-group default --fps 1 15 30 --models SurgVLP SurgCLIP SurgMotion300M
 ```
 
-Each frame gets a causal clip ending at it (`MODEL_NUM_FRAMES` in the config), and
-each frame is decoded once. Cached files are keyed by surgery, fps, clip length,
-clip stride and the frame list, so changed frames are re-encoded. Training,
-evaluation and notebooks read the same cache through
-`surgphase.inference.load_or_encode`.
-
-# Evaluate
-
-Run zero-shot, frame-head and sequence-head predictions with every temporal
-decoding and write one CSV row per (model, fps, source, decoding, surgery):
+**4. Evaluate** (zero-shot, frame heads and sequence heads with every temporal decoding)
 
 ```sh
 uv run poe evaluate --annotations assets/annotations/default/annotated_frames.csv \
   --phase-group default --fps 1 --models SurgVLP SurgCLIP \
   --sources zeroshot frame_head sequence_head --head-types linear simple \
-  --output results/evaluation.csv
+  --output-dir results/evaluation/default_fps1
 ```
 
-- `zeroshot` uses the phase prompts in `assets/phases/<group>.json` per prompt
-  style and with all styles combined (vision-language models only).
-- `frame_head` and `sequence_head` are trained with leave-one-surgery-out folds:
-  each surgery is tested once, the next one validates, the rest train. They
-  need at least three surgeries.
-- Temporal decodings (`TEMPORAL_METHODS` in the config): moving average, moving
-  median and exponential moving average over `SMOOTHING_SECONDS`, HMM filtering
-  (online) and Viterbi (offline). The HMM is fitted on the labels of the other
-  surgeries. Add `--centered` for offline, centred smoothing windows.
+Head training uses leave-one-surgery-out folds and needs at least three surgeries.
 
-Metrics include accuracy, macro F1, Jaccard, edit score and segmental F1@{10,25,50};
-unlabelled frames are skipped.
-
-# Train a single head
+**Train a single head**
 
 ```sh
 uv run poe train-head --model SurgVLP --annotations assets/annotations/default/annotated_frames.csv \
-  --phase-group default --fps 1 --train-surgeries pat01 pat02 --val-surgeries pat04 --head-type simple
+  --phase-group default --fps 1 --train-surgeries pat01 pat02 --val-surgeries pat04 \
+  --head-type simple --class-weights --output-dir results/finetuning
 ```
 
-# Library overview
+**Load a model with a trained head**
 
-| Module | Contents |
-|---|---|
-| `surgphase.data` | `load_surgeries` (frame paths and labels per surgery), phase groups and prompts |
-| `surgphase.models` | `load_model`, adapters, preprocessors (`native` or `letterbox`) |
-| `surgphase.inference` | `load_or_encode`, `encode_sequence`, `Predictor` |
-| `surgphase.zeroshot` | `phase_prompts`, `text_classifier`, `zero_shot_probabilities` |
-| `surgphase.finetuning` | frame heads (`build_head`, `fit`), causal MS-TCN `SequenceHead` (`fit_sequence`) |
-| `surgphase.temporal` | smoothing, `PhaseHMM`, `decode` |
-| `surgphase.eval` | `score`, `compute_metrics`, `leave_one_surgery_out` |
-| `surgphase.viz` | `plot_timeline`, `plot_confusion_matrix`, `phase_colors` |
+```sh
+uv run poe load-model --model SurgVLP --phase-group default \
+  --head results/finetuning/SurgVLP_native_default_fps1_simple_head.pt
+```
+
+**Analyse results** in `notebooks/` (data, embeddings, zero-shot, results and error analysis).
+
+## Project structure
+
+```
+├── scripts/            # entry points run by poe tasks
+├── notebooks/          # analysis of outputs in results/
+└── src/surgphase/
+    ├── config/         # global constants and paths
+    ├── data/           # annotations, phase groups and prompts
+    ├── models/         # model loader, adapters, preprocessors
+    ├── inference/      # encoding, embedding cache, predictor
+    ├── zeroshot/       # text-prompt classifier
+    ├── finetuning/     # frame and sequence heads, training
+    ├── temporal/       # smoothing and HMM decoding
+    ├── eval/           # metrics, splits, predictions
+    └── viz/            # timelines and confusion matrices
+```
+
+## Citation
+
+If you use this code, please cite the models it builds on:
+
+```bibtex
+@article{yuan2025surgvlp,
+  title   = {Learning Multi-modal Representations by Watching Hundreds of Surgical Video Lectures},
+  author  = {Yuan, Kun and Srivastav, Vinkle and Yu, Tong and Lavanchy, Joel L. and Marescaux, Jacques and Mascagni, Pietro and Navab, Nassir and Padoy, Nicolas},
+  journal = {Medical Image Analysis},
+  year    = {2025}
+}
+
+@inproceedings{yuan2024hecvl,
+  title     = {HecVL: Hierarchical Video-Language Pretraining for Zero-shot Surgical Phase Recognition},
+  author    = {Yuan, Kun and Srivastav, Vinkle and Navab, Nassir and Padoy, Nicolas},
+  booktitle = {Medical Image Computing and Computer Assisted Intervention (MICCAI)},
+  year      = {2024}
+}
+
+@inproceedings{yuan2024peskavlp,
+  title     = {Procedure-Aware Surgical Video-language Pretraining with Hierarchical Knowledge Augmentation},
+  author    = {Yuan, Kun and Navab, Nassir and Padoy, Nicolas},
+  booktitle = {Advances in Neural Information Processing Systems (NeurIPS)},
+  year      = {2024}
+}
+
+@inproceedings{farha2019mstcn,
+  title     = {MS-TCN: Multi-Stage Temporal Convolutional Network for Action Segmentation},
+  author    = {Farha, Yazan Abu and Gall, Juergen},
+  booktitle = {IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)},
+  year      = {2019}
+}
+
+@inproceedings{alsentzer2019clinicalbert,
+  title     = {Publicly Available Clinical BERT Embeddings},
+  author    = {Alsentzer, Emily and Murphy, John and Boag, William and Weng, Wei-Hung and Jindi, Di and Naumann, Tristan and McDermott, Matthew},
+  booktitle = {Proceedings of the 2nd Clinical Natural Language Processing Workshop},
+  year      = {2019}
+}
+```
+
+For SurgCLIP and SurgMotion, use the citations given in their repositories.
+
+## Acknowledgements
+
+Built on [SurgVLP](https://github.com/CAMMA-public/SurgVLP), SurgCLIP, [SurgMotion](https://huggingface.co/CAIR-HKISI/SurgMotion) and [Bio_ClinicalBERT](https://huggingface.co/emilyalsentzer/Bio_ClinicalBERT).

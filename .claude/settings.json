@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "deny": [
+      "Read(./assets/frames/**)",
+      "Read(./assets/videos/**)",
+      "Read(./assets/models/**)",
+      "Read(./assets/annotations/**/*.csv)",
+      "Read(./results/embeddings/**)",
+      "Read(./.venv/**)",
+      "Read(./uv.lock)",
+      "Read(./.pytest_cache/**)",
+      "Read(./.ruff_cache/**)",
+      "Read(**/__pycache__/**)"
+    ]
+  }
+}

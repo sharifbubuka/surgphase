@@ -1,0 +1,23 @@
+[tasks.sample-frames]
+cmd = "python scripts/sample_frames.py"
+# uv run poe sample-frames --video assets/videos/pat01.mp4 assets/videos/pat02.mp4  assets/videos/pat04.mp4 --output assets/frames --fps 1 15 30
+
+[tasks.annotate-frames]
+cmd = "python scripts/annotate_frames.py"
+# uv run poe annotate-frames --surgery-id pat01 pat02 pat04 --annotation-id default --frames-dir assets/frames/pat01/fps1 assets/frames/pat02/fps1 assets/frames/pat04/fps1 --fps 1 --annotations assets/annotations/default/pat01.json assets/annotations/default/pat02.json assets/annotations/default/pat04.json --output assets/annotations/default/annotated_frames.csv
+
+[tasks.load-model]
+cmd = "python scripts/load_model.py"
+# uv run poe load-model --model SurgVLP --head results/finetuning/SurgVLP_native_default_fps1_simple_head.pt --phase-group default
+
+[tasks.train-head]
+cmd = "python scripts/train_head.py"
+# uv run poe train-head --model SurgVLP --annotations assets/annotations/default/annotated_frames.csv --phase-group default --fps 1 --train-surgeries pat01 pat02 --val-surgeries pat04 --head-type simple --class-weights --output-dir results/finetuning
+
+[tasks.encode-frames]
+cmd = "python scripts/encode_frames.py"
+# uv run poe encode-frames --annotations assets/annotations/default/annotated_frames.csv --phase-group default --fps 1 15 30 --models SurgVLP SurgCLIP SurgMotion300M
+
+[tasks.evaluate]
+cmd = "python scripts/evaluate.py"
+# uv run poe evaluate --annotations assets/annotations/default/annotated_frames.csv --phase-group default --fps 1 --models SurgVLP SurgCLIP --sources zeroshot frame_head sequence_head --head-types linear simple --output-dir results/evaluation/default_fps1

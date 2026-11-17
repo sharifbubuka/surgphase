@@ -1,9 +1,7 @@
 import argparse
-import csv
 import json
 import math
 import os
-import re
 import sys
 import uuid
 from bisect import bisect_right
@@ -12,6 +10,7 @@ from pathlib import Path
 from typing import TypeVar
 
 from surgphase.config import ROOT_DIR
+from surgphase.data import AnnotatedFrame, frame_index, save_annotated_frames
 
 T = TypeVar("T")
 
@@ -23,6 +22,13 @@ class FrameGroup:
     frames_dir: Path
     fps: float
     annotations_path: Path
+
+
+@dataclass(frozen=True)
+class PhaseInterval:
+    phase_id: str
+    start: float
+    end: float
 
 
 def parse_timestamp(value: str) -> float:
@@ -42,7 +48,7 @@ def parse_timestamp(value: str) -> float:
     return seconds
 
 
-def load_annotations(path: Path) -> tuple[list, list]:
+def load_annotations(path: Path) -> tuple[list[PhaseInterval], list[float]]:
     with path.open(encoding="utf-8") as file:
         records = json.load(file)
 
@@ -55,29 +61,23 @@ def load_annotations(path: Path) -> tuple[list, list]:
         if end <= start:
             raise ValueError(f"Invalid interval: {record}")
 
-        intervals.append(
-            {
-                "phase_id": record["phase_id"],
-                "start": start,
-                "end": end,
-            }
-        )
+        intervals.append(PhaseInterval(record["phase_id"], start, end))
 
-    intervals.sort(key=lambda item: item["start"])
+    intervals.sort(key=lambda interval: interval.start)
 
     for previous, current in zip(intervals, intervals[1:], strict=False):
-        if current["start"] < previous["end"]:
+        if current.start < previous.end:
             raise ValueError("Overlapping phase intervals")
 
-    starts = [interval["start"] for interval in intervals]
+    starts = [interval.start for interval in intervals]
 
     return intervals, starts
 
 
 def get_phase(
     timestamp: float,
-    intervals: list,
-    starts: list,
+    intervals: list[PhaseInterval],
+    starts: list[float],
 ) -> str | None:
     index = bisect_right(starts, timestamp) - 1
 
@@ -86,13 +86,13 @@ def get_phase(
 
     interval = intervals[index]
 
-    if timestamp < interval["end"]:
-        return interval["phase_id"]
+    if timestamp < interval.end:
+        return interval.phase_id
 
     return None
 
 
-def annotate_group(group: FrameGroup, root: Path) -> list[dict[str, str | float | None]]:
+def annotate_group(group: FrameGroup, root: Path) -> list[AnnotatedFrame]:
     if not math.isfinite(group.fps) or group.fps <= 0:
         raise ValueError(f"FPS must be a positive finite number: {group.fps}")
 
@@ -110,35 +110,32 @@ def annotate_group(group: FrameGroup, root: Path) -> list[dict[str, str | float 
     if not frames:
         raise ValueError(f"No PNG frames found in {group.frames_dir}")
 
-    frame_indices = []
-    for frame in frames:
-        match = re.fullmatch(r"frame_(\d+)", frame.stem)
-        if match is None:
-            raise ValueError(f"Invalid frame filename: {frame}")
-        frame_indices.append((int(match.group(1)), frame))
+    frame_indices = sorted(
+        ((frame_index(frame), frame) for frame in frames), key=lambda item: item[0]
+    )
 
-    frame_indices.sort(key=lambda item: item[0])
-
-    rows = []
+    annotated = []
     unannotated = []
     relative_frames_dir = Path(os.path.relpath(group.frames_dir.resolve(), root.resolve()))
 
-    for frame_index, frame in frame_indices:
-        timestamp = frame_index / group.fps
+    for index, frame in frame_indices:
+        timestamp = index / group.fps
 
         phase_id = get_phase(timestamp, intervals, starts)
 
         if phase_id is None:
             unannotated.append(frame.name)
 
-        rows.append(
-            {
-                "surgery_id": group.surgery_id,
-                "frame_path": (relative_frames_dir / frame.name).as_posix(),
-                "sample_rate": group.fps,
-                "annotation_id": group.annotation_id,
-                "phase_id": phase_id,
-            }
+        frame_path = (relative_frames_dir / frame.name).as_posix()
+        annotated.append(
+            AnnotatedFrame(
+                id=str(uuid.uuid5(uuid.NAMESPACE_URL, frame_path)),
+                surgery_id=group.surgery_id,
+                path=frame_path,
+                sample_rate=group.fps,
+                phase_group=group.annotation_id,
+                phase_id=phase_id,
+            )
         )
 
     if unannotated:
@@ -148,46 +145,20 @@ def annotate_group(group: FrameGroup, root: Path) -> list[dict[str, str | float 
             file=sys.stderr,
         )
 
-    return rows
-
-
-def assign_frame_ids(rows: list[dict[str, str | float | None]]) -> None:
-    for row in rows:
-        path = row["frame_path"]
-        if not isinstance(path, str):
-            raise TypeError("Frame path must be a string")
-        row["frame_id"] = str(uuid.uuid5(uuid.NAMESPACE_URL, path))
+    return annotated
 
 
 def annotate_frames(groups: list[FrameGroup], root: Path, output_path: Path) -> None:
     if not groups:
         raise ValueError("At least one frame group is required")
 
-    rows = []
+    frames = []
     for group in groups:
-        rows.extend(annotate_group(group, root))
+        frames.extend(annotate_group(group, root))
 
-    assign_frame_ids(rows)
+    save_annotated_frames(output_path, frames)
 
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-
-    with output_path.open("w", newline="", encoding="utf-8") as file:
-        writer = csv.DictWriter(
-            file,
-            fieldnames=[
-                "surgery_id",
-                "frame_id",
-                "frame_path",
-                "sample_rate",
-                "annotation_id",
-                "phase_id",
-            ],
-        )
-
-        writer.writeheader()
-        writer.writerows(rows)
-
-    print(f"Annotated {len(rows)} frames")
+    print(f"Annotated {len(frames)} frames")
     print(f"Saved to: {output_path}")
 
 

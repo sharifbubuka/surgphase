@@ -10,6 +10,7 @@
   # uv run poe train-head --model SurgVLP --annotations assets/annotations/default/annotated_frames.csv --fps 1
   ```
 
+- **Commit messages are a single lowercase title.** Use conventional commits, `type(scope): summary`, e.g. `fix(eval): handle empty segments` or `refactor(data): add encoding spec`. Everything is lowercase, including names of classes and functions. No body, description or trailers.
 - **No commit attribution.** Do not add `Co-Authored-By` or any other attribution lines to commit messages or PR descriptions. Commits carry only the user's git identity.
 
 ## Project map

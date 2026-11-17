@@ -1,3 +1,4 @@
+from .encoding import EncodingSpec
 from .frames import (
     ANNOTATION_COLUMNS,
     AnnotatedFrame,
@@ -12,6 +13,7 @@ from .surgery import Surgery, load_surgeries
 __all__ = [
     "ANNOTATION_COLUMNS",
     "AnnotatedFrame",
+    "EncodingSpec",
     "Phase",
     "PhaseGroup",
     "PhaseMapper",

@@ -16,8 +16,8 @@ from surgphase.config import (
     PREPROCESSORS,
     ROOT_DIR,
 )
-from surgphase.data import load_surgeries
-from surgphase.inference import embedding_cache_path, encoding_batch_size, load_or_encode
+from surgphase.data import EncodingSpec, load_surgeries
+from surgphase.inference import embedding_cache_path, load_or_encode
 from surgphase.models import default_device, find_weights, load_model
 
 
@@ -66,8 +66,8 @@ def main() -> int:
                 return 1
 
     for model_name in args.models:
-        clip_length = MODEL_NUM_FRAMES[model_name]
-        batch_size = args.batch_size or encoding_batch_size(clip_length)
+        spec = EncodingSpec.for_model(model_name, args.preprocessor, args.clip_stride)
+        batch_size = args.batch_size or spec.batch_size
         weights = find_weights(args.weights_dir, model_name)
 
         @cache
@@ -77,28 +77,13 @@ def main() -> int:
 
         for fps, surgeries in surgeries_by_fps.items():
             for surgery in surgeries.values():
-                path = embedding_cache_path(
-                    args.cache_dir,
-                    model_name,
-                    args.preprocessor,
-                    surgery,
-                    clip_length,
-                    args.clip_stride,
-                )
+                path = embedding_cache_path(args.cache_dir, spec, surgery)
                 if path.is_file():
                     print(f"{model_name} {surgery.id} @ {fps:g} fps: cached at {path}")
                     continue
                 start = time.perf_counter()
                 embeddings = load_or_encode(
-                    args.cache_dir,
-                    model_name,
-                    args.preprocessor,
-                    surgery,
-                    clip_length,
-                    args.clip_stride,
-                    encoder,
-                    batch_size,
-                    args.num_workers,
+                    args.cache_dir, spec, surgery, encoder, batch_size, args.num_workers
                 )
                 print(
                     f"{model_name} {surgery.id} @ {fps:g} fps: {tuple(embeddings.shape)} "

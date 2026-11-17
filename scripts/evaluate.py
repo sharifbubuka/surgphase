@@ -27,7 +27,7 @@ from surgphase.config import (
     TEMPORAL_METHODS,
     ZERO_SHOT_TEMPERATURE,
 )
-from surgphase.data import PhaseGroup, Surgery, load_phase_group, load_surgeries
+from surgphase.data import EncodingSpec, PhaseGroup, Surgery, load_phase_group, load_surgeries
 from surgphase.eval import leave_one_surgery_out, predictions_file, save_predictions, score
 from surgphase.finetuning import (
     HEAD_TYPES,
@@ -40,7 +40,7 @@ from surgphase.finetuning import (
     fit_sequence,
     predict_logits,
 )
-from surgphase.inference import encoding_batch_size, load_or_encode
+from surgphase.inference import load_or_encode
 from surgphase.models import BaseVisionLanguageModel, default_device, find_weights, load_model
 from surgphase.temporal import HMM_METHODS, decodings, leave_one_out_hmms
 from surgphase.zeroshot import phase_prompts, text_classifier, zero_shot_probabilities
@@ -212,9 +212,18 @@ def evaluate_predictions(
     surgeries: dict[str, Surgery],
     predictions: Iterator[Prediction],
     num_phases: int,
-    context: dict,
+    spec: EncodingSpec,
+    fps: float,
     predictions_dir: Path,
 ) -> list[dict]:
+    context = {
+        "phase_group": args.phase_group,
+        "model": spec.model,
+        "preprocessor": spec.preprocessor,
+        "fps": fps,
+        "clip_length": spec.clip_length,
+        "clip_stride": spec.clip_stride,
+    }
     hmms = leave_one_out_hmms(
         {s.id: s.labels[s.labelled] for s in surgeries.values()}, num_phases, args.hmm_pseudocount
     )
@@ -223,15 +232,7 @@ def evaluate_predictions(
     rows = []
     for prediction in predictions:
         surgery = surgeries[prediction.surgery_id]
-        file = predictions_file(
-            context["model"],
-            context["preprocessor"],
-            context["fps"],
-            context["clip_length"],
-            context["clip_stride"],
-            prediction.source,
-            prediction.variant,
-        )
+        file = predictions_file(spec, fps, prediction.source, prediction.variant)
         probabilities[file][surgery.id] = prediction.probabilities.astype(np.float32)
         for decoding in variants:
             hmm = hmms[surgery.id] if decoding.method in HMM_METHODS else None
@@ -269,7 +270,7 @@ def main() -> int:
             args.annotations, phase_group_file, args.frames_root, fps, args.surgeries
         )
         for model_name in args.models:
-            clip_length = MODEL_NUM_FRAMES[model_name]
+            spec = EncodingSpec.for_model(model_name, args.preprocessor, args.clip_stride)
             weights = find_weights(args.weights_dir, model_name)
 
             @cache
@@ -279,24 +280,13 @@ def main() -> int:
             embeddings = {
                 surgery_id: load_or_encode(
                     args.cache_dir,
-                    model_name,
-                    args.preprocessor,
+                    spec,
                     surgery,
-                    clip_length,
-                    args.clip_stride,
                     encoder,
-                    args.batch_size or encoding_batch_size(clip_length),
+                    args.batch_size or spec.batch_size,
                     args.num_workers,
                 )
                 for surgery_id, surgery in surgeries.items()
-            }
-            context = {
-                "phase_group": args.phase_group,
-                "model": model_name,
-                "preprocessor": args.preprocessor,
-                "fps": fps,
-                "clip_length": clip_length,
-                "clip_stride": args.clip_stride,
             }
             for source in args.sources:
                 if source == "zeroshot":
@@ -309,7 +299,7 @@ def main() -> int:
                 elif source == "sequence_head":
                     predictions = sequence_head_predictions(args, surgeries, embeddings, num_phases)
                 new_rows = evaluate_predictions(
-                    args, surgeries, predictions, num_phases, context, predictions_dir
+                    args, surgeries, predictions, num_phases, spec, fps, predictions_dir
                 )
                 if not new_rows:
                     continue

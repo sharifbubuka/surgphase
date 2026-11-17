@@ -3,20 +3,14 @@ from pathlib import Path
 
 import numpy as np
 
+from surgphase.data.encoding import EncodingSpec
 
-def predictions_file(
-    model_name: str,
-    preprocessor: str,
-    fps: float,
-    clip_length: int,
-    clip_stride: int,
-    source: str,
-    variant: str,
-) -> Path:
+
+def predictions_file(spec: EncodingSpec, fps: float, source: str, variant: str) -> Path:
     return (
-        Path(model_name)
-        / preprocessor
-        / f"fps{fps:g}_clip{clip_length}x{clip_stride}"
+        Path(spec.model)
+        / spec.preprocessor
+        / f"fps{fps:g}_clip{spec.clip_length}x{spec.clip_stride}"
         / source
         / f"{variant}.npz"
     )

@@ -21,7 +21,7 @@ from surgphase.config import (
     PREPROCESSORS,
     ROOT_DIR,
 )
-from surgphase.data import PhaseMapper, Surgery, load_surgeries
+from surgphase.data import EncodingSpec, PhaseMapper, load_surgeries
 from surgphase.finetuning import (
     HEAD_TYPES,
     Split,
@@ -31,7 +31,7 @@ from surgphase.finetuning import (
     fit,
     save_head,
 )
-from surgphase.inference import encoding_batch_size, load_or_encode
+from surgphase.inference import load_or_encode
 from surgphase.models import default_device, find_weights, load_model
 
 
@@ -39,20 +39,6 @@ def set_seed(seed: int) -> None:
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
-
-
-def surgery_embeddings(args: argparse.Namespace, surgery: Surgery, encoder) -> torch.Tensor:
-    return load_or_encode(
-        args.cache_dir,
-        args.model,
-        args.preprocessor,
-        surgery,
-        args.clip_length,
-        args.clip_stride,
-        encoder,
-        args.encode_batch_size,
-        args.num_workers,
-    )
 
 
 def describe_split(name: str, split: Split, mapper: PhaseMapper) -> None:
@@ -171,15 +157,15 @@ def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     set_seed(args.seed)
 
-    if args.clip_length is None:
-        args.clip_length = MODEL_NUM_FRAMES[args.model]
-    if args.encode_batch_size is None:
-        args.encode_batch_size = encoding_batch_size(args.clip_length)
-    if args.model.startswith("SurgMotion") and args.clip_length % 2:
-        print("SurgMotion needs an even --clip-length (tubelet size 2)", file=sys.stderr)
-        return 1
-    if min(args.clip_length, args.clip_stride, args.frame_stride) < 1:
+    if min(args.clip_length or 1, args.clip_stride, args.frame_stride) < 1:
         print("--clip-length, --clip-stride and --frame-stride must be >= 1", file=sys.stderr)
+        return 1
+    spec = EncodingSpec.for_model(args.model, args.preprocessor, args.clip_stride, args.clip_length)
+    args.clip_length = spec.clip_length
+    if args.encode_batch_size is None:
+        args.encode_batch_size = spec.batch_size
+    if args.model.startswith("SurgMotion") and spec.clip_length % 2:
+        print("SurgMotion needs an even --clip-length (tubelet size 2)", file=sys.stderr)
         return 1
 
     mapper = PhaseMapper(PHASES_DIR / f"{args.phase_group}.json")
@@ -245,7 +231,9 @@ def main() -> int:
         if not surgery.labelled.any():
             print(f"{surgery_id} has no labelled frames", file=sys.stderr)
             return 1
-        x = surgery_embeddings(args, surgery, encoder)
+        x = load_or_encode(
+            args.cache_dir, spec, surgery, encoder, args.encode_batch_size, args.num_workers
+        )
         keep = np.flatnonzero(surgery.labelled)[:: args.frame_stride]
         embeddings[surgery_id] = (x[keep], torch.from_numpy(surgery.labels[keep]))
     print(f"Embeddings ready in {time.perf_counter() - start:.1f}s")

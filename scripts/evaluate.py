@@ -28,7 +28,13 @@ from surgphase.config import (
     ZERO_SHOT_TEMPERATURE,
 )
 from surgphase.data import EncodingSpec, PhaseGroup, Surgery, load_phase_group, load_surgeries
-from surgphase.eval import leave_one_surgery_out, predictions_file, save_predictions, score
+from surgphase.eval import (
+    MetricsResult,
+    leave_one_surgery_out,
+    predictions_file,
+    save_predictions,
+    score,
+)
 from surgphase.finetuning import (
     HEAD_TYPES,
     SequenceHead,
@@ -43,7 +49,7 @@ from surgphase.finetuning import (
 )
 from surgphase.inference import load_or_encode
 from surgphase.models import BaseVisionLanguageModel, default_device, find_weights, load_model
-from surgphase.temporal import HMM_METHODS, decodings, leave_one_out_hmms
+from surgphase.temporal import HMM_METHODS, Decoding, decodings, leave_one_out_hmms
 from surgphase.zeroshot import phase_prompts, text_classifier, zero_shot_probabilities
 
 SOURCES = ("zeroshot", "frame_head", "sequence_head")
@@ -55,6 +61,33 @@ class Prediction:
     variant: str
     surgery_id: str
     probabilities: np.ndarray
+
+
+@dataclass(frozen=True)
+class EvaluationRecord:
+    phase_group: str
+    spec: EncodingSpec
+    fps: float
+    prediction: Prediction
+    decoding: Decoding
+    metrics: MetricsResult
+    predictions_file: Path
+
+    def to_row(self) -> dict:
+        return {
+            "phase_group": self.phase_group,
+            "model": self.spec.model,
+            "preprocessor": self.spec.preprocessor,
+            "fps": self.fps,
+            "clip_length": self.spec.clip_length,
+            "clip_stride": self.spec.clip_stride,
+            "source": self.prediction.source,
+            "variant": self.prediction.variant,
+            "surgery_id": self.prediction.surgery_id,
+            **asdict(self.decoding),
+            **asdict(self.metrics),
+            "predictions_file": self.predictions_file.as_posix(),
+        }
 
 
 def parse_args() -> argparse.Namespace:
@@ -195,21 +228,13 @@ def evaluate_predictions(
     spec: EncodingSpec,
     fps: float,
     predictions_dir: Path,
-) -> list[dict]:
-    context = {
-        "phase_group": args.phase_group,
-        "model": spec.model,
-        "preprocessor": spec.preprocessor,
-        "fps": fps,
-        "clip_length": spec.clip_length,
-        "clip_stride": spec.clip_stride,
-    }
+) -> list[EvaluationRecord]:
     hmms = leave_one_out_hmms(
         {s.id: s.labels[s.labelled] for s in surgeries.values()}, num_phases, args.hmm_pseudocount
     )
     variants = decodings(args.temporal_methods, args.smoothing_seconds, args.centered)
     probabilities = defaultdict(dict)
-    rows = []
+    records = []
     for prediction in predictions:
         surgery = surgeries[prediction.surgery_id]
         file = predictions_file(spec, fps, prediction.source, prediction.variant)
@@ -217,20 +242,20 @@ def evaluate_predictions(
         for decoding in variants:
             hmm = hmms[surgery.id] if decoding.method in HMM_METHODS else None
             labels = decoding.apply(prediction.probabilities, surgery.fps, hmm)
-            rows.append(
-                {
-                    **context,
-                    "source": prediction.source,
-                    "variant": prediction.variant,
-                    "surgery_id": surgery.id,
-                    **asdict(decoding),
-                    **asdict(score(surgery.labels, labels)),
-                    "predictions_file": file.as_posix(),
-                }
+            records.append(
+                EvaluationRecord(
+                    args.phase_group,
+                    spec,
+                    fps,
+                    prediction,
+                    decoding,
+                    score(surgery.labels, labels),
+                    file,
+                )
             )
     for file, per_surgery in probabilities.items():
         save_predictions(predictions_dir / file, per_surgery)
-    return rows
+    return records
 
 
 def main() -> int:
@@ -244,7 +269,7 @@ def main() -> int:
         json.dump(
             {k: str(v) if isinstance(v, Path) else v for k, v in vars(args).items()}, file, indent=2
         )
-    rows = []
+    records = []
     for fps in args.fps:
         surgeries = load_surgeries(
             args.annotations, phase_group_file, args.frames_root, fps, args.surgeries
@@ -278,24 +303,25 @@ def main() -> int:
                     predictions = frame_head_predictions(args, surgeries, embeddings, num_phases)
                 elif source == "sequence_head":
                     predictions = sequence_head_predictions(args, surgeries, embeddings, num_phases)
-                new_rows = evaluate_predictions(
+                new_records = evaluate_predictions(
                     args, surgeries, predictions, num_phases, spec, fps, predictions_dir
                 )
-                if not new_rows:
+                if not new_records:
                     continue
-                rows += new_rows
-                best = max(new_rows, key=lambda row: row["f1_macro"])
+                records += new_records
+                best = max(new_records, key=lambda record: record.metrics.f1_macro)
                 print(
-                    f"{model_name} @ {fps:g} fps {source}: {len(new_rows)} rows, best f1_macro "
-                    f"{best['f1_macro']:.3f} ({best['variant']}, {best['method']}, {best['surgery_id']})"
+                    f"{model_name} @ {fps:g} fps {source}: {len(new_records)} rows, best f1_macro "
+                    f"{best.metrics.f1_macro:.3f} ({best.prediction.variant}, "
+                    f"{best.decoding.method}, {best.prediction.surgery_id})"
                 )
             encoder.cache_clear()
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
 
     metrics_path = args.output_dir / "metrics.csv"
-    pd.DataFrame(rows).to_csv(metrics_path, index=False)
-    print(f"Wrote {len(rows)} rows to {metrics_path}")
+    pd.DataFrame([record.to_row() for record in records]).to_csv(metrics_path, index=False)
+    print(f"Wrote {len(records)} rows to {metrics_path}")
     return 0
 
 

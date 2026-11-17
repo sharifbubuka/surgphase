@@ -10,6 +10,8 @@
   # uv run poe train-head --model SurgVLP --annotations assets/annotations/default/annotated_frames.csv --fps 1
   ```
 
+- **No commit attribution.** Do not add `Co-Authored-By` or any other attribution lines to commit messages or PR descriptions. Commits carry only the user's git identity.
+
 ## Project map
 
 Surgical phase recognition with surgical vision-language models (zero-shot, plus trained heads on frozen embeddings). The `uv run poe <task>` entry points are in `poe_tasks.toml`, and each one runs a script in `scripts/`.

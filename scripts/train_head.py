@@ -29,6 +29,7 @@ from surgphase.finetuning import (
     build_head,
     evaluate,
     fit,
+    frame_split,
     save_head,
 )
 from surgphase.inference import load_or_encode
@@ -42,9 +43,9 @@ def set_seed(seed: int) -> None:
 
 
 def describe_split(name: str, split: Split, mapper: PhaseMapper) -> None:
-    labels = torch.cat([labels for _, labels in split.values()])
+    labels = torch.cat([sequence.labels for sequence in split.values()])
     counts = Counter(labels.tolist())
-    sizes = ", ".join(f"{surgery}={len(y)}" for surgery, (_, y) in split.items())
+    sizes = ", ".join(f"{surgery}={len(sequence)}" for surgery, sequence in split.items())
     print(f"{name}: {len(labels)} samples ({sizes})")
     for index in range(mapper.num_phases()):
         print(
@@ -224,32 +225,30 @@ def main() -> int:
         print(f"Loading encoder {args.model} on {args.device}...")
         return load_model(args.model, args.device, weights, args.preprocessor)
 
-    embeddings: dict[str, tuple[torch.Tensor, torch.Tensor]] = {}
+    embeddings: dict[str, torch.Tensor] = {}
     start = time.perf_counter()
     for surgery_id in used:
         surgery = surgeries[surgery_id]
         if not surgery.labelled.any():
             print(f"{surgery_id} has no labelled frames", file=sys.stderr)
             return 1
-        x = load_or_encode(
+        embeddings[surgery_id] = load_or_encode(
             args.cache_dir, spec, surgery, encoder, args.encode_batch_size, args.num_workers
         )
-        keep = np.flatnonzero(surgery.labelled)[:: args.frame_stride]
-        embeddings[surgery_id] = (x[keep], torch.from_numpy(surgery.labels[keep]))
     print(f"Embeddings ready in {time.perf_counter() - start:.1f}s")
     encoder.cache_clear()
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
 
-    train_split = {s: embeddings[s] for s in train_surgeries}
-    val_split = {s: embeddings[s] for s in val_surgeries}
-    test_split = {s: embeddings[s] for s in args.test_surgeries}
+    train_split = frame_split(surgeries, embeddings, train_surgeries, args.frame_stride)
+    val_split = frame_split(surgeries, embeddings, val_surgeries, args.frame_stride)
+    test_split = frame_split(surgeries, embeddings, args.test_surgeries, args.frame_stride)
     describe_split("Train", train_split, mapper)
     describe_split("Val", val_split, mapper)
     if test_split:
         describe_split("Test", test_split, mapper)
 
-    embedding_dim = next(iter(embeddings.values()))[0].shape[1]
+    embedding_dim = next(iter(embeddings.values())).shape[1]
     head = build_head(args.head_type, embedding_dim, num_phases, args.dropout)
     print(
         f"Training {args.head_type} head: {embedding_dim} -> {num_phases}, "
@@ -267,14 +266,14 @@ def main() -> int:
 
     print(f"\nBest epoch: {result.best_epoch} (selected on val {args.select_metric})")
     for split_name, split_result in results.items():
-        overall = split_result["overall"]
+        overall = split_result.overall
         print(
-            f"{split_name.capitalize():>5}: acc={overall['accuracy']:.4f} f1_macro={overall['f1_macro']:.4f} "
-            f"iou={overall['iou']:.4f} precision={overall['precision']:.4f} recall={overall['recall']:.4f}"
+            f"{split_name.capitalize():>5}: acc={overall.accuracy:.4f} f1_macro={overall.f1_macro:.4f} "
+            f"iou={overall.iou:.4f} precision={overall.precision:.4f} recall={overall.recall:.4f}"
         )
-        for surgery_id, metrics in split_result["per_surgery"].items():
+        for surgery_id, metrics in split_result.per_surgery.items():
             print(
-                f"       {surgery_id}: acc={metrics['accuracy']:.4f} f1_macro={metrics['f1_macro']:.4f}"
+                f"       {surgery_id}: acc={metrics.accuracy:.4f} f1_macro={metrics.f1_macro:.4f}"
             )
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
@@ -297,8 +296,8 @@ def main() -> int:
         "phase_ids": mapper.get_all_phase_ids(),
         "phase_names": mapper.get_all_phase_names(),
         "best_epoch": result.best_epoch,
-        "results": results,
-        "history": result.history,
+        "results": {name: asdict(evaluation) for name, evaluation in results.items()},
+        "history": [asdict(epoch) for epoch in result.history],
     }
     with summary_path.open("w", encoding="utf-8") as file:
         json.dump(summary, file, indent=2)

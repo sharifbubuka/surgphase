@@ -3,7 +3,7 @@ import json
 import random
 import sys
 from collections import defaultdict
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterator
 from dataclasses import asdict, dataclass
 from functools import cache
 from pathlib import Path
@@ -33,12 +33,13 @@ from surgphase.finetuning import (
     HEAD_TYPES,
     SequenceHead,
     SequenceHeadConfig,
-    Split,
     TrainingConfig,
     build_head,
     fit,
     fit_sequence,
+    frame_split,
     predict_logits,
+    sequence_split,
 )
 from surgphase.inference import load_or_encode
 from surgphase.models import BaseVisionLanguageModel, default_device, find_weights, load_model
@@ -130,18 +131,6 @@ def zeroshot_predictions(
             )
 
 
-def labelled_split(
-    surgeries: dict[str, Surgery], embeddings: dict[str, torch.Tensor], ids: Sequence[str]
-) -> Split:
-    return {
-        surgery_id: (
-            embeddings[surgery_id][surgeries[surgery_id].labelled],
-            torch.from_numpy(surgeries[surgery_id].labels[surgeries[surgery_id].labelled]),
-        )
-        for surgery_id in ids
-    }
-
-
 def frame_head_predictions(
     args: argparse.Namespace,
     surgeries: dict[str, Surgery],
@@ -156,23 +145,14 @@ def frame_head_predictions(
             head = build_head(head_type, embedding_dim, num_phases)
             fit(
                 head,
-                labelled_split(surgeries, embeddings, fold.train),
-                labelled_split(surgeries, embeddings, [fold.val]),
+                frame_split(surgeries, embeddings, fold.train),
+                frame_split(surgeries, embeddings, [fold.val]),
                 num_phases,
                 config,
                 args.device,
             )
             logits = predict_logits(head, embeddings[fold.test], args.device)
             yield Prediction("frame_head", head_type, fold.test, logits.softmax(dim=1).numpy())
-
-
-def sequence_split(
-    surgeries: dict[str, Surgery], embeddings: dict[str, torch.Tensor], ids: Sequence[str]
-) -> Split:
-    return {
-        surgery_id: (embeddings[surgery_id], torch.from_numpy(surgeries[surgery_id].labels))
-        for surgery_id in ids
-    }
 
 
 def sequence_head_predictions(

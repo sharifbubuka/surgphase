@@ -2,6 +2,7 @@ from .head import (
     HEAD_PRESETS,
     HEAD_TYPES,
     HeadConfig,
+    HeadPreset,
     HeadType,
     PhaseHead,
     build_head,
@@ -9,8 +10,17 @@ from .head import (
     save_head,
 )
 from .sequence_head import SequenceHead, SequenceHeadConfig, sequence_loss
-from .trainer import (
+from .split import (
+    LabelledSequence,
     Split,
+    frame_split,
+    full_sequence,
+    labelled_frames,
+    sequence_split,
+)
+from .trainer import (
+    EpochLog,
+    Evaluation,
     TrainingConfig,
     TrainingResult,
     balanced_class_weights,
@@ -24,6 +34,7 @@ __all__ = [
     "HEAD_PRESETS",
     "HEAD_TYPES",
     "HeadConfig",
+    "HeadPreset",
     "HeadType",
     "PhaseHead",
     "build_head",
@@ -32,7 +43,14 @@ __all__ = [
     "SequenceHead",
     "SequenceHeadConfig",
     "sequence_loss",
+    "LabelledSequence",
     "Split",
+    "frame_split",
+    "full_sequence",
+    "labelled_frames",
+    "sequence_split",
+    "EpochLog",
+    "Evaluation",
     "TrainingConfig",
     "TrainingResult",
     "balanced_class_weights",

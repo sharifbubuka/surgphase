@@ -21,10 +21,17 @@ class HeadConfig:
     batch_norm: bool = False
 
 
-HEAD_PRESETS: dict[str, dict] = {
-    "linear": {"hidden_dims": (), "dropout": 0.0, "batch_norm": False},
-    "simple": {"hidden_dims": (256,), "dropout": 0.1, "batch_norm": False},
-    "robust": {"hidden_dims": (512, 256), "dropout": 0.3, "batch_norm": True},
+@dataclass(frozen=True)
+class HeadPreset:
+    hidden_dims: tuple[int, ...]
+    dropout: float
+    batch_norm: bool
+
+
+HEAD_PRESETS: dict[str, HeadPreset] = {
+    "linear": HeadPreset(hidden_dims=(), dropout=0.0, batch_norm=False),
+    "simple": HeadPreset(hidden_dims=(256,), dropout=0.1, batch_norm=False),
+    "robust": HeadPreset(hidden_dims=(512, 256), dropout=0.3, batch_norm=True),
 }
 
 
@@ -65,9 +72,9 @@ def build_head(
         HeadConfig(
             embedding_dim=embedding_dim,
             num_phases=num_phases,
-            hidden_dims=tuple(preset["hidden_dims"] if hidden_dims is None else hidden_dims),
-            dropout=preset["dropout"] if dropout is None else dropout,
-            batch_norm=preset["batch_norm"],
+            hidden_dims=tuple(preset.hidden_dims if hidden_dims is None else hidden_dims),
+            dropout=preset.dropout if dropout is None else dropout,
+            batch_norm=preset.batch_norm,
         )
     )
 

@@ -1,7 +1,7 @@
 import logging
 import random
 from collections.abc import Callable
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Literal
 
 import numpy as np
@@ -11,12 +11,12 @@ from sklearn.utils.class_weight import compute_class_weight
 from torch.utils.data import DataLoader, TensorDataset
 
 from surgphase.config import UNLABELLED
-from surgphase.eval import compute_metrics
+from surgphase.eval import MetricsResult, compute_metrics
 from surgphase.finetuning.sequence_head import SequenceHead, sequence_loss
+from surgphase.finetuning.split import Split
 
 logger = logging.getLogger(__name__)
 
-Split = dict[str, tuple[torch.Tensor, torch.Tensor]]
 SelectMetric = Literal["f1_macro", "accuracy", "loss"]
 SEQUENCE_METRICS = (
     "transition_error",
@@ -45,12 +45,32 @@ class TrainingConfig:
     smoothing_max: float = 4.0
 
 
+@dataclass(frozen=True)
+class EpochLog:
+    epoch: int
+    lr: float
+    train_loss: float
+    val_loss: float
+    val_accuracy: float
+    val_f1_macro: float
+
+
 @dataclass
 class TrainingResult:
     best_epoch: int
     best_score: float
     best_state: dict[str, torch.Tensor]
-    history: list[dict] = field(default_factory=list)
+    history: list[EpochLog] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class Evaluation:
+    loss: float
+    overall: MetricsResult
+    per_surgery: dict[str, MetricsResult]
+
+    def score(self, metric: str) -> float:
+        return self.loss if metric == "loss" else getattr(self.overall, metric)
 
 
 def balanced_class_weights(labels: torch.Tensor, num_phases: int) -> torch.Tensor:
@@ -81,25 +101,30 @@ def evaluate(
     split: Split,
     device: str | torch.device,
     loss_fn: nn.Module | None = None,
-) -> dict:
+) -> Evaluation:
     loss_fn = loss_fn or nn.CrossEntropyLoss()
     per_surgery, all_true, all_pred = {}, [], []
     total_loss, total = 0.0, 0
-    for surgery_id, (embeddings, labels) in split.items():
-        logits = predict_logits(head, embeddings, device)
+    for surgery_id, sequence in split.items():
+        logits = predict_logits(head, sequence.embeddings, device)
+        labels = sequence.labels
         labelled = labels != UNLABELLED
         logits, labels = logits[labelled], labels[labelled]
         preds = logits.argmax(dim=1).numpy()
         total_loss += loss_fn(logits, labels).item() * len(labels)
         total += len(labels)
-        per_surgery[surgery_id] = asdict(compute_metrics(labels.numpy(), preds))
+        per_surgery[surgery_id] = compute_metrics(labels.numpy(), preds)
         all_true.append(labels.numpy())
         all_pred.append(preds)
 
-    overall = asdict(compute_metrics(np.concatenate(all_true), np.concatenate(all_pred)))
-    for key in SEQUENCE_METRICS:
-        overall[key] = float(np.mean([metrics[key] for metrics in per_surgery.values()]))
-    return {"loss": total_loss / total, "overall": overall, "per_surgery": per_surgery}
+    overall = replace(
+        compute_metrics(np.concatenate(all_true), np.concatenate(all_pred)),
+        **{
+            key: float(np.mean([getattr(metrics, key) for metrics in per_surgery.values()]))
+            for key in SEQUENCE_METRICS
+        },
+    )
+    return Evaluation(total_loss / total, overall, per_surgery)
 
 
 def _loss_functions(
@@ -139,18 +164,16 @@ def _train(
         scheduler.step()
 
         val = evaluate(head, val_split, device, val_loss_fn)
-        score = (
-            val["loss"] if config.select_metric == "loss" else val["overall"][config.select_metric]
-        )
+        score = val.score(config.select_metric)
         result.history.append(
-            {
-                "epoch": epoch,
-                "lr": scheduler.get_last_lr()[0],
-                "train_loss": train_loss,
-                "val_loss": val["loss"],
-                "val_accuracy": val["overall"]["accuracy"],
-                "val_f1_macro": val["overall"]["f1_macro"],
-            }
+            EpochLog(
+                epoch=epoch,
+                lr=scheduler.get_last_lr()[0],
+                train_loss=train_loss,
+                val_loss=val.loss,
+                val_accuracy=val.overall.accuracy,
+                val_f1_macro=val.overall.f1_macro,
+            )
         )
 
         improved = sign * (score - result.best_score) > config.min_delta
@@ -167,9 +190,9 @@ def _train(
                 "Epoch %3d: train_loss=%.4f val_loss=%.4f val_acc=%.4f val_f1=%.4f%s",
                 epoch,
                 train_loss,
-                val["loss"],
-                val["overall"]["accuracy"],
-                val["overall"]["f1_macro"],
+                val.loss,
+                val.overall.accuracy,
+                val.overall.f1_macro,
                 "  *" if improved else "",
             )
         if config.patience and stale >= config.patience:
@@ -193,8 +216,8 @@ def fit(
     config: TrainingConfig,
     device: str | torch.device,
 ) -> TrainingResult:
-    train_x = torch.cat([embeddings for embeddings, _ in train_split.values()])
-    train_y = torch.cat([labels for _, labels in train_split.values()])
+    train_x = torch.cat([sequence.embeddings for sequence in train_split.values()])
+    train_y = torch.cat([sequence.labels for sequence in train_split.values()])
     labelled = train_y != UNLABELLED
     train_x, train_y = train_x[labelled], train_y[labelled]
     has_batch_norm = any(isinstance(module, nn.BatchNorm1d) for module in head.modules())
@@ -230,16 +253,16 @@ def fit_sequence(
     device: str | torch.device,
 ) -> TrainingResult:
     sequences = list(train_split.values())
-    train_y = torch.cat([labels for _, labels in sequences])
+    train_y = torch.cat([sequence.labels for sequence in sequences])
     train_loss_fn, val_loss_fn = _loss_functions(train_y, num_phases, config, device)
 
     def train_epoch(optimizer: torch.optim.Optimizer) -> float:
         running = 0.0
-        for embeddings, labels in random.sample(sequences, len(sequences)):
-            stage_logits = head.stage_logits(embeddings.unsqueeze(0).to(device))
+        for sequence in random.sample(sequences, len(sequences)):
+            stage_logits = head.stage_logits(sequence.embeddings.unsqueeze(0).to(device))
             loss = sequence_loss(
                 stage_logits,
-                labels.unsqueeze(0).to(device),
+                sequence.labels.unsqueeze(0).to(device),
                 train_loss_fn,
                 config.smoothing_weight,
                 config.smoothing_max,

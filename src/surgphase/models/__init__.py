@@ -2,6 +2,7 @@ from .adapters import SurgCLIPAdapter, SurgMotionAdapter, SurgVLPAdapter
 from .base import BaseVideoEncoder, BaseVisionLanguageModel
 from .loader import default_device, find_weights, load_model
 from .preprocessors import (
+    ChannelStats,
     Letterbox,
     Preprocessor,
     PreprocessorSpec,
@@ -12,6 +13,7 @@ from .preprocessors import (
 __all__ = [
     "BaseVideoEncoder",
     "BaseVisionLanguageModel",
+    "ChannelStats",
     "Letterbox",
     "Preprocessor",
     "PreprocessorSpec",

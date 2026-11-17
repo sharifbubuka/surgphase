@@ -10,9 +10,10 @@ from surgphase.config import PREPROCESSORS
 
 Preprocessor = Callable[[Image.Image], torch.Tensor]
 PreprocessorSpec = str | Preprocessor
+ChannelStats = tuple[float, float, float]
 
-IMAGENET_MEAN = (0.485, 0.456, 0.406)
-IMAGENET_STD = (0.229, 0.224, 0.225)
+IMAGENET_MEAN: ChannelStats = (0.485, 0.456, 0.406)
+IMAGENET_STD: ChannelStats = (0.229, 0.224, 0.225)
 
 
 def _to_rgb(image: Image.Image) -> Image.Image:
@@ -23,8 +24,8 @@ class Letterbox:
     def __init__(
         self,
         size: int = 224,
-        mean: tuple[float, float, float] = IMAGENET_MEAN,
-        std: tuple[float, float, float] = IMAGENET_STD,
+        mean: ChannelStats = IMAGENET_MEAN,
+        std: ChannelStats = IMAGENET_STD,
         interpolation: InterpolationMode = InterpolationMode.BICUBIC,
     ):
         self.size = size
@@ -66,8 +67,8 @@ def resolve_preprocessor(
     spec: PreprocessorSpec,
     native: Preprocessor,
     size: int,
-    mean: tuple[float, float, float],
-    std: tuple[float, float, float],
+    mean: ChannelStats,
+    std: ChannelStats,
 ) -> Preprocessor:
     if callable(spec):
         return spec

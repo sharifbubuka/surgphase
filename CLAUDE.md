@@ -17,11 +17,11 @@
 Surgical phase recognition with surgical vision-language models (zero-shot, plus trained heads on frozen embeddings). The `uv run poe <task>` entry points are in `poe_tasks.toml`, and each one runs a script in `scripts/`.
 
 - `src/surgphase/config/__init__.py`: every global constant and path (FPS, PATIENTS, MODELS, MODEL_NUM_FRAMES, *_DIR)
-- `data/`: annotated-frame CSV loading, phase groups and prompts (`assets/phases/*.json`), phase mapping, surgeries
+- `data/`: annotated-frame CSV schema (`AnnotatedFrame`, read and write), phase groups and prompts (`assets/phases/*.json`), phase mapping, surgeries, `EncodingSpec` (model, preprocessor, clip length/stride: keys the embedding cache and prediction files)
 - `models/`: `base.py` interface, `loader.py`, `preprocessors.py` (native/letterbox), `adapters/` (SurgVLP, SurgCLIP, SurgMotion)
 - `inference/`: encoding frames, plus the on-disk embedding cache in `embeddings.py` (`load_or_encode`, under `results/embeddings`) and the predictor
 - `zeroshot/`: text-prompt classifier
-- `finetuning/`: frame head, sequence head, trainer
+- `finetuning/`: frame head, sequence head, trainer, `split.py` (`LabelledSequence`/`Split` and the builders for frame and sequence splits)
 - `temporal/`: smoothing, HMM filter/Viterbi decode, `Decoding` variants and leave-one-out HMMs
 - `eval/`: metrics (sklearn/torchmetrics), scoring, leave-one-surgery-out splits, per-frame prediction files (`predictions.py`, written by the evaluate task)
 - `viz/`: timelines, confusion matrices

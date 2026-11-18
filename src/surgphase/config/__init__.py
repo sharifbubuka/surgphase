@@ -9,8 +9,7 @@ PATIENTS = [
     "pat04",
     "pat05",
     "pat06",
-    "pat07",
-    "pat08",
+    "pat07"
 ]
 
 MODELS = [

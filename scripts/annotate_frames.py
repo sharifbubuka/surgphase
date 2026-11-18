@@ -56,7 +56,7 @@ def load_annotations(path: Path) -> tuple[list[PhaseInterval], list[float]]:
 
     for record in records:
         start = parse_timestamp(record["start_time"])
-        end = parse_timestamp(record["end_time"])
+        end = parse_timestamp(record["end_time"]) if record["end_time"] else math.inf
 
         if end <= start:
             raise ValueError(f"Invalid interval: {record}")
@@ -67,7 +67,7 @@ def load_annotations(path: Path) -> tuple[list[PhaseInterval], list[float]]:
 
     for previous, current in zip(intervals, intervals[1:], strict=False):
         if current.start < previous.end:
-            raise ValueError("Overlapping phase intervals")
+            raise ValueError(f"Overlapping phase intervals in {path}")
 
     starts = [interval.start for interval in intervals]
 

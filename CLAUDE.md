@@ -18,7 +18,7 @@
 Surgical phase recognition with surgical vision-language models (zero-shot, plus trained heads on frozen embeddings). The `uv run poe <task>` entry points are in `poe_tasks.toml`, and each one runs a script in `scripts/`.
 
 - `src/surgphase/config/__init__.py`: every global constant and path (FPS, PATIENTS, MODELS, MODEL_NUM_FRAMES, *_DIR, *_FILE)
-- `data/`: annotated-frame CSV schema (`AnnotatedFrame`, read and write), the single phase group (`assets/phases/default.json`; merge variants: `--merge P6+P7` relabels P7 frames as P6 in `load_annotated_frames` and `merge_phases` drops P7), zero-shot prompts keyed by phase id (`assets/prompts/default.json`), phase mapping, surgeries, `EncodingSpec` (model, preprocessor, clip length/stride: keys the embedding cache and prediction files)
+- `data/`: annotated-frame CSV schema (`AnnotatedFrame`, read and write), the single phase group (`assets/phases/default.json`; merge variants: `--merge P5+P6` relabels P6 frames as P5 in `load_annotated_frames` and `merge_phases` drops P6), zero-shot prompts keyed by phase id (`assets/prompts/default.json`), phase mapping, surgeries, `EncodingSpec` (model, preprocessor, clip length/stride: keys the embedding cache and prediction files)
 - `models/`: `base.py` interface, `loader.py`, `preprocessors.py` (native/letterbox), `adapters/` (SurgVLP, SurgCLIP, SurgMotion)
 - `inference/`: encoding frames, plus the on-disk embedding cache in `embeddings.py` (`load_or_encode`, under `results/embeddings`) and the predictor
 - `zeroshot/`: text-prompt classifier

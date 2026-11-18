@@ -88,7 +88,7 @@ def main() -> int:
         nargs="+",
         type=parse_merge,
         default=[],
-        metavar="P6+P7",
+        metavar="P5+P6",
         help="Phases merged when the head was trained; its output size is checked against them",
     )
     parser.add_argument(

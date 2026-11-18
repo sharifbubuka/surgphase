@@ -20,4 +20,4 @@ cmd = "python scripts/encode_frames.py"
 
 [tasks.evaluate]
 cmd = "python scripts/evaluate.py"
-# uv run poe evaluate --annotations assets/annotations/default/annotated_frames.csv --fps 1 --merge P6+P7 --models SurgVLP SurgCLIP --sources zeroshot frame_head sequence_head --head-types linear simple --output-dir results/evaluation/default_P6+P7_fps1
+# uv run poe evaluate --annotations assets/annotations/default/annotated_frames.csv --fps 1 --merge P5+P6 --models SurgVLP SurgCLIP --sources zeroshot frame_head sequence_head --head-types linear simple --output-dir results/evaluation/default_P5+P6_fps1

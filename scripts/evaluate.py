@@ -113,8 +113,8 @@ def parse_args() -> argparse.Namespace:
         nargs="+",
         type=parse_merge,
         default=[],
-        metavar="P6+P7",
-        help="Phases to merge into one class, e.g. --merge P6+P7 P2+P3",
+        metavar="P5+P6",
+        help="Phases to merge into one class, e.g. --merge P5+P6 P2+P3",
     )
     parser.add_argument("--fps", type=float, nargs="+", required=True)
     parser.add_argument("--models", nargs="+", choices=list(MODEL_NUM_FRAMES), default=MODELS)

@@ -72,8 +72,8 @@ def parse_args() -> argparse.Namespace:
         nargs="+",
         type=parse_merge,
         default=[],
-        metavar="P6+P7",
-        help="Phases to merge into one class, e.g. --merge P6+P7 P2+P3",
+        metavar="P5+P6",
+        help="Phases to merge into one class, e.g. --merge P5+P6 P2+P3",
     )
     data.add_argument("--fps", type=float, required=True, help="Sample rate to use")
     data.add_argument(

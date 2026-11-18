@@ -7,7 +7,17 @@ from .frames import (
     save_annotated_frames,
 )
 from .phase_mapper import PhaseMapper
-from .phases import Phase, PhaseGroup, Prompt, Prompts, load_phase_group, ordered_phases
+from .phases import (
+    Phase,
+    PhaseGroup,
+    Prompt,
+    Prompts,
+    load_phase_group,
+    load_prompts,
+    merge_phases,
+    ordered_phases,
+    parse_merge,
+)
 from .surgery import Surgery, load_surgeries
 
 __all__ = [
@@ -23,7 +33,10 @@ __all__ = [
     "frame_index",
     "load_annotated_frames",
     "load_phase_group",
+    "load_prompts",
     "load_surgeries",
+    "merge_phases",
     "ordered_phases",
+    "parse_merge",
     "save_annotated_frames",
 ]

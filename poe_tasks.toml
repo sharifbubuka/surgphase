@@ -8,16 +8,16 @@ cmd = "python scripts/annotate_frames.py"
 
 [tasks.load-model]
 cmd = "python scripts/load_model.py"
-# uv run poe load-model --model SurgVLP --head results/finetuning/SurgVLP_native_default_fps1_simple_head.pt --phase-group default
+# uv run poe load-model --model SurgVLP --head results/finetuning/SurgVLP_native_default_fps1_simple_head.pt
 
 [tasks.train-head]
 cmd = "python scripts/train_head.py"
-# uv run poe train-head --model SurgVLP --annotations assets/annotations/default/annotated_frames.csv --phase-group default --fps 1 --train-surgeries pat01 pat02 --val-surgeries pat04 --head-type simple --class-weights --output-dir results/finetuning
+# uv run poe train-head --model SurgVLP --annotations assets/annotations/default/annotated_frames.csv --fps 1 --train-surgeries pat01 pat02 --val-surgeries pat04 --head-type simple --class-weights --output-dir results/finetuning
 
 [tasks.encode-frames]
 cmd = "python scripts/encode_frames.py"
-# uv run poe encode-frames --annotations assets/annotations/default/annotated_frames.csv --phase-group default --fps 1 15 30 --models SurgVLP SurgCLIP SurgMotion300M
+# uv run poe encode-frames --annotations assets/annotations/default/annotated_frames.csv --fps 1 15 30 --models SurgVLP SurgCLIP SurgMotion300M
 
 [tasks.evaluate]
 cmd = "python scripts/evaluate.py"
-# uv run poe evaluate --annotations assets/annotations/default/annotated_frames.csv --phase-group default --fps 1 --models SurgVLP SurgCLIP --sources zeroshot frame_head sequence_head --head-types linear simple --output-dir results/evaluation/default_fps1
+# uv run poe evaluate --annotations assets/annotations/default/annotated_frames.csv --fps 1 --merge P6+P7 --models SurgVLP SurgCLIP --sources zeroshot frame_head sequence_head --head-types linear simple --output-dir results/evaluation/default_P6+P7_fps1

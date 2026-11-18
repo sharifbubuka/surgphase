@@ -1,7 +1,7 @@
 import csv
 import re
-from collections.abc import Iterable, Mapping
-from dataclasses import dataclass
+from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 ANNOTATION_COLUMNS = (
@@ -68,7 +68,9 @@ def load_annotated_frames(
     sample_rate: float | None = None,
     phase_groups: str | Iterable[str] | None = None,
     phase_ids: str | Iterable[str] | None = None,
+    merges: Iterable[Sequence[str]] = (),
 ) -> list[AnnotatedFrame]:
+    merged_into = {phase_id: ids[0] for ids in merges for phase_id in ids[1:]}
     surgery_ids = _normalize_filter(surgery_id)
     phase_groups = _normalize_filter(phase_groups)
     phase_ids = _normalize_filter(phase_ids)
@@ -78,6 +80,8 @@ def load_annotated_frames(
     with Path(file_path).open("r", encoding="utf-8", newline="") as file:
         for row in csv.DictReader(file):
             frame = AnnotatedFrame.from_row(row)
+            if frame.phase_id in merged_into:
+                frame = replace(frame, phase_id=merged_into[frame.phase_id])
             if surgery_ids is not None and frame.surgery_id not in surgery_ids:
                 continue
             if sample_rate is not None and frame.sample_rate != float(sample_rate):

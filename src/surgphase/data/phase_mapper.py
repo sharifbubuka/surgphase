@@ -1,12 +1,10 @@
-from pathlib import Path
-
-from surgphase.data.phases import PhaseGroup, load_phase_group, ordered_phases
+from surgphase.data.phases import PhaseGroup, ordered_phases
 
 
 class PhaseMapper:
-    def __init__(self, phase_group_file: str | Path):
-        self.phase_group: PhaseGroup = load_phase_group(phase_group_file)
-        self.phases = ordered_phases(self.phase_group)
+    def __init__(self, phase_group: PhaseGroup):
+        self.phase_group = phase_group
+        self.phases = ordered_phases(phase_group)
         self.id_to_idx = {phase.id: index for index, phase in enumerate(self.phases)}
 
     def map_to_index(self, phase_id: str) -> int:

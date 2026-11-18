@@ -1,21 +1,27 @@
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 
 import numpy as np
 import torch
 import torch.nn.functional as F
 
 from surgphase.config import PROMPT_STYLES
-from surgphase.data.phases import PhaseGroup, ordered_phases
+from surgphase.data.phases import PhaseGroup, Prompts, ordered_phases
 from surgphase.models.base import BaseVisionLanguageModel
 
 
-def phase_prompts(phase_group: PhaseGroup, styles: Sequence[str]) -> list[list[str]]:
+def phase_prompts(
+    phase_group: PhaseGroup, prompts: Mapping[str, Prompts], styles: Sequence[str]
+) -> list[list[str]]:
     unknown = set(styles) - set(PROMPT_STYLES)
     if unknown or not styles:
         raise ValueError(f"styles must be a non-empty subset of {PROMPT_STYLES}, got {styles}")
+    phases = ordered_phases(phase_group)
+    missing = {phase.id for phase in phases} - set(prompts)
+    if missing:
+        raise KeyError(f"no prompts for phase ids {sorted(missing)}")
     return [
-        [prompt.message for style in styles for prompt in getattr(phase.prompts, style)]
-        for phase in ordered_phases(phase_group)
+        [prompt.message for style in styles for prompt in getattr(prompts[phase.id], style)]
+        for phase in phases
     ]
 
 

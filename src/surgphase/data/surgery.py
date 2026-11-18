@@ -1,5 +1,5 @@
 from collections import defaultdict
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -8,6 +8,7 @@ import numpy as np
 from surgphase.config import UNLABELLED
 from surgphase.data.frames import frame_index, load_annotated_frames
 from surgphase.data.phase_mapper import PhaseMapper
+from surgphase.data.phases import PhaseGroup
 
 
 @dataclass(frozen=True)
@@ -24,17 +25,19 @@ class Surgery:
 
 def load_surgeries(
     annotations_file: str | Path,
-    phase_group_file: str | Path,
+    phase_group: PhaseGroup,
     frames_root: str | Path,
     fps: float,
     surgery_ids: str | Iterable[str] | None = None,
+    merges: Iterable[Sequence[str]] = (),
 ) -> dict[str, Surgery]:
-    mapper = PhaseMapper(phase_group_file)
+    mapper = PhaseMapper(phase_group)
     frames = load_annotated_frames(
         annotations_file,
         surgery_id=surgery_ids,
         sample_rate=fps,
         phase_groups=mapper.phase_group.id,
+        merges=merges,
     )
     if not frames:
         raise ValueError(

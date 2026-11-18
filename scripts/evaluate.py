@@ -18,16 +18,26 @@ from surgphase.config import (
     MODEL_NUM_FRAMES,
     MODEL_WEIGHTS_DIR,
     MODELS,
-    PHASE_GROUPS,
-    PHASES_DIR,
+    PHASE_GROUP_FILE,
     PREPROCESSORS,
     PROMPT_STYLES,
+    PROMPTS_FILE,
     ROOT_DIR,
     SMOOTHING_SECONDS,
     TEMPORAL_METHODS,
     ZERO_SHOT_TEMPERATURE,
 )
-from surgphase.data import EncodingSpec, PhaseGroup, Surgery, load_phase_group, load_surgeries
+from surgphase.data import (
+    EncodingSpec,
+    PhaseGroup,
+    Prompts,
+    Surgery,
+    load_phase_group,
+    load_prompts,
+    load_surgeries,
+    merge_phases,
+    parse_merge,
+)
 from surgphase.eval import (
     MetricsResult,
     leave_one_surgery_out,
@@ -98,7 +108,14 @@ def parse_args() -> argparse.Namespace:
         "<output-dir>/predictions (the predictions_file column points at them)."
     )
     parser.add_argument("--annotations", type=Path, required=True, help="Annotated frames CSV")
-    parser.add_argument("--phase-group", choices=PHASE_GROUPS, required=True)
+    parser.add_argument(
+        "--merge",
+        nargs="+",
+        type=parse_merge,
+        default=[],
+        metavar="P6+P7",
+        help="Phases to merge into one class, e.g. --merge P6+P7 P2+P3",
+    )
     parser.add_argument("--fps", type=float, nargs="+", required=True)
     parser.add_argument("--models", nargs="+", choices=list(MODEL_NUM_FRAMES), default=MODELS)
     parser.add_argument("--surgeries", nargs="+", help="Default: every surgery in the CSV")
@@ -109,6 +126,12 @@ def parse_args() -> argparse.Namespace:
         choices=PROMPT_STYLES,
         default=PROMPT_STYLES,
         help="Zero-shot is run per style and with all of them combined",
+    )
+    parser.add_argument(
+        "--prompts",
+        type=Path,
+        default=PROMPTS_FILE,
+        help="Zero-shot prompts JSON keyed by phase id",
     )
     parser.add_argument("--temperature", type=float, default=ZERO_SHOT_TEMPERATURE)
     parser.add_argument("--head-types", nargs="+", choices=HEAD_TYPES, default=["linear"])
@@ -148,13 +171,14 @@ def zeroshot_predictions(
     args: argparse.Namespace,
     encoder: BaseVisionLanguageModel,
     phase_group: PhaseGroup,
+    prompts: dict[str, Prompts],
     embeddings: dict[str, torch.Tensor],
 ) -> Iterator[Prediction]:
     variants = [[style] for style in args.prompt_styles]
     if len(args.prompt_styles) > 1:
         variants.append(list(args.prompt_styles))
     for styles in variants:
-        classifier = text_classifier(encoder, phase_prompts(phase_group, styles))
+        classifier = text_classifier(encoder, phase_prompts(phase_group, prompts, styles))
         for surgery_id, surgery_embeddings in embeddings.items():
             yield Prediction(
                 "zeroshot",
@@ -224,13 +248,15 @@ def evaluate_predictions(
     args: argparse.Namespace,
     surgeries: dict[str, Surgery],
     predictions: Iterator[Prediction],
-    num_phases: int,
+    phase_group: PhaseGroup,
     spec: EncodingSpec,
     fps: float,
     predictions_dir: Path,
 ) -> list[EvaluationRecord]:
     hmms = leave_one_out_hmms(
-        {s.id: s.labels[s.labelled] for s in surgeries.values()}, num_phases, args.hmm_pseudocount
+        {s.id: s.labels[s.labelled] for s in surgeries.values()},
+        len(phase_group.phases),
+        args.hmm_pseudocount,
     )
     variants = decodings(args.temporal_methods, args.smoothing_seconds, args.centered)
     probabilities = defaultdict(dict)
@@ -244,7 +270,7 @@ def evaluate_predictions(
             labels = decoding.apply(prediction.probabilities, surgery.fps, hmm)
             records.append(
                 EvaluationRecord(
-                    args.phase_group,
+                    phase_group.name,
                     spec,
                     fps,
                     prediction,
@@ -260,8 +286,8 @@ def evaluate_predictions(
 
 def main() -> int:
     args = parse_args()
-    phase_group_file = PHASES_DIR / f"{args.phase_group}.json"
-    phase_group = load_phase_group(phase_group_file)
+    phase_group = merge_phases(load_phase_group(PHASE_GROUP_FILE), args.merge)
+    prompts = load_prompts(args.prompts)
     num_phases = len(phase_group.phases)
     predictions_dir = args.output_dir / "predictions"
     args.output_dir.mkdir(parents=True, exist_ok=True)
@@ -272,7 +298,7 @@ def main() -> int:
     records = []
     for fps in args.fps:
         surgeries = load_surgeries(
-            args.annotations, phase_group_file, args.frames_root, fps, args.surgeries
+            args.annotations, phase_group, args.frames_root, fps, args.surgeries, args.merge
         )
         for model_name in args.models:
             spec = EncodingSpec.for_model(model_name, args.preprocessor, args.clip_stride)
@@ -298,13 +324,15 @@ def main() -> int:
                     if not isinstance(encoder(), BaseVisionLanguageModel):
                         print(f"{model_name} has no text encoder: skipping zeroshot")
                         continue
-                    predictions = zeroshot_predictions(args, encoder(), phase_group, embeddings)
+                    predictions = zeroshot_predictions(
+                        args, encoder(), phase_group, prompts, embeddings
+                    )
                 elif source == "frame_head":
                     predictions = frame_head_predictions(args, surgeries, embeddings, num_phases)
                 elif source == "sequence_head":
                     predictions = sequence_head_predictions(args, surgeries, embeddings, num_phases)
                 new_records = evaluate_predictions(
-                    args, surgeries, predictions, num_phases, spec, fps, predictions_dir
+                    args, surgeries, predictions, phase_group, spec, fps, predictions_dir
                 )
                 if not new_records:
                     continue

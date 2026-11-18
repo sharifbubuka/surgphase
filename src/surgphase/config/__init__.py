@@ -22,8 +22,6 @@ MODELS = [
     # "SurgMotion1B"
 ]
 
-PHASE_GROUPS = ["default", "merged6&7"]
-
 PROMPT_STYLES = ["narrative", "descriptive"]
 
 ZERO_SHOT_TEMPERATURE = 0.01
@@ -47,7 +45,9 @@ HMM_PSEUDOCOUNT = 1.0
 
 ROOT_DIR = Path(__file__).parent.parent.parent.parent
 
-PHASES_DIR = ROOT_DIR / "assets/phases"
+PHASE_GROUP_FILE = ROOT_DIR / "assets/phases/default.json"
+
+PROMPTS_FILE = ROOT_DIR / "assets/prompts/default.json"
 
 FRAMES_DIR = ROOT_DIR / "assets/frames"
 
@@ -80,7 +80,6 @@ __all__ = [
     "FPS",
     "PATIENTS",
     "MODELS",
-    "PHASE_GROUPS",
     "PROMPT_STYLES",
     "ZERO_SHOT_TEMPERATURE",
     "UNLABELLED",
@@ -89,7 +88,8 @@ __all__ = [
     "TEMPORAL_METHODS",
     "HMM_PSEUDOCOUNT",
     "ROOT_DIR",
-    "PHASES_DIR",
+    "PHASE_GROUP_FILE",
+    "PROMPTS_FILE",
     "FRAMES_DIR",
     "ANNOTATIONS_DIR",
     "RESULTS_DIR",

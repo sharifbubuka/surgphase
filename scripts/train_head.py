@@ -16,12 +16,18 @@ from surgphase.config import (
     EMBEDDINGS_DIR,
     MODEL_NUM_FRAMES,
     MODEL_WEIGHTS_DIR,
-    PHASE_GROUPS,
-    PHASES_DIR,
+    PHASE_GROUP_FILE,
     PREPROCESSORS,
     ROOT_DIR,
 )
-from surgphase.data import EncodingSpec, PhaseMapper, load_surgeries
+from surgphase.data import (
+    EncodingSpec,
+    PhaseMapper,
+    load_phase_group,
+    load_surgeries,
+    merge_phases,
+    parse_merge,
+)
 from surgphase.finetuning import (
     HEAD_TYPES,
     Split,
@@ -61,7 +67,14 @@ def parse_args() -> argparse.Namespace:
     )
     data = parser.add_argument_group("data")
     data.add_argument("--annotations", type=Path, required=True, help="Annotated frames CSV")
-    data.add_argument("--phase-group", choices=PHASE_GROUPS, required=True)
+    data.add_argument(
+        "--merge",
+        nargs="+",
+        type=parse_merge,
+        default=[],
+        metavar="P6+P7",
+        help="Phases to merge into one class, e.g. --merge P6+P7 P2+P3",
+    )
     data.add_argument("--fps", type=float, required=True, help="Sample rate to use")
     data.add_argument(
         "--frames-root",
@@ -169,10 +182,11 @@ def main() -> int:
         print("SurgMotion needs an even --clip-length (tubelet size 2)", file=sys.stderr)
         return 1
 
-    mapper = PhaseMapper(PHASES_DIR / f"{args.phase_group}.json")
+    phase_group = merge_phases(load_phase_group(PHASE_GROUP_FILE), args.merge)
+    mapper = PhaseMapper(phase_group)
     num_phases = mapper.num_phases()
     surgeries = load_surgeries(
-        args.annotations, PHASES_DIR / f"{args.phase_group}.json", args.frames_root, args.fps
+        args.annotations, phase_group, args.frames_root, args.fps, merges=args.merge
     )
 
     surgery_ids = list(surgeries)
@@ -214,7 +228,7 @@ def main() -> int:
         return 1
 
     print(
-        f"Model {args.model}, phase group {args.phase_group} ({num_phases} phases), "
+        f"Model {args.model}, phase group {phase_group.name} ({num_phases} phases), "
         f"clip length {args.clip_length}, clip stride {args.clip_stride}, frame stride {args.frame_stride}"
     )
 
@@ -278,7 +292,7 @@ def main() -> int:
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
     stem = args.name or (
-        f"{args.model}_{args.preprocessor}_{args.phase_group}_fps{args.fps:g}_{args.head_type}"
+        f"{args.model}_{args.preprocessor}_{phase_group.name}_fps{args.fps:g}_{args.head_type}"
     )
     head_path = args.output_dir / f"{stem}_head.pt"
     summary_path = args.output_dir / f"{stem}_summary.json"

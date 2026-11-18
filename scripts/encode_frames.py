@@ -11,12 +11,11 @@ from surgphase.config import (
     MODEL_NUM_FRAMES,
     MODEL_WEIGHTS_DIR,
     MODELS,
-    PHASE_GROUPS,
-    PHASES_DIR,
+    PHASE_GROUP_FILE,
     PREPROCESSORS,
     ROOT_DIR,
 )
-from surgphase.data import EncodingSpec, load_surgeries
+from surgphase.data import EncodingSpec, load_phase_group, load_surgeries
 from surgphase.inference import embedding_cache_path, load_or_encode
 from surgphase.models import default_device, find_weights, load_model
 
@@ -27,7 +26,6 @@ def parse_args() -> argparse.Namespace:
         "embeddings, so notebooks and training scripts never re-encode."
     )
     parser.add_argument("--annotations", type=Path, required=True, help="Annotated frames CSV")
-    parser.add_argument("--phase-group", choices=PHASE_GROUPS, required=True)
     parser.add_argument("--fps", type=float, nargs="+", required=True)
     parser.add_argument("--models", nargs="+", choices=list(MODEL_NUM_FRAMES), default=MODELS)
     parser.add_argument("--surgeries", nargs="+", help="Default: every surgery in the CSV")
@@ -46,10 +44,11 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
+    phase_group = load_phase_group(PHASE_GROUP_FILE)
     surgeries_by_fps = {
         fps: load_surgeries(
             args.annotations,
-            PHASES_DIR / f"{args.phase_group}.json",
+            phase_group,
             args.frames_root,
             fps,
             args.surgeries,

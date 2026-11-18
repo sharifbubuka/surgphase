@@ -9,11 +9,10 @@ import torch.nn as nn
 from surgphase.config import (
     MODEL_NUM_FRAMES,
     MODEL_WEIGHTS_DIR,
-    PHASE_GROUPS,
-    PHASES_DIR,
+    PHASE_GROUP_FILE,
     PREPROCESSORS,
 )
-from surgphase.data.phase_mapper import PhaseMapper
+from surgphase.data import load_phase_group, merge_phases, parse_merge
 from surgphase.finetuning import PhaseHead, SequenceHead, load_head
 from surgphase.models import BaseVideoEncoder, default_device, find_weights, load_model
 
@@ -85,9 +84,12 @@ def main() -> int:
         help="Path to a fine-tuned phase head state dict (.pt)",
     )
     parser.add_argument(
-        "--phase-group",
-        choices=PHASE_GROUPS,
-        help="If given, check the head's output size matches this phase group",
+        "--merge",
+        nargs="+",
+        type=parse_merge,
+        default=[],
+        metavar="P6+P7",
+        help="Phases merged when the head was trained; its output size is checked against them",
     )
     parser.add_argument(
         "--no-smoke-test",
@@ -127,15 +129,14 @@ def main() -> int:
             f"Loaded head from {args.head}: {head.embedding_dim} -> {shape} -> "
             f"{head.num_phases} phases, {sum(p.numel() for p in head.parameters()):,} parameters"
         )
-        if args.phase_group:
-            expected = PhaseMapper(PHASES_DIR / f"{args.phase_group}.json").num_phases()
-            if head.num_phases != expected:
-                print(
-                    f"  ERROR: head predicts {head.num_phases} phases but "
-                    f"'{args.phase_group}' has {expected}",
-                    file=sys.stderr,
-                )
-                ok = False
+        phase_group = merge_phases(load_phase_group(PHASE_GROUP_FILE), args.merge)
+        if head.num_phases != len(phase_group.phases):
+            print(
+                f"  ERROR: head predicts {head.num_phases} phases but "
+                f"'{phase_group.name}' has {len(phase_group.phases)} (pass the training --merge)",
+                file=sys.stderr,
+            )
+            ok = False
     else:
         print("No head given: embeddings only (phase predictions need a trained --head)")
 

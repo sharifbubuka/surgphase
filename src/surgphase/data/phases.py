@@ -21,6 +21,7 @@ class Phase:
     id: str
     order: int
     name: str
+    members: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -58,6 +59,7 @@ def load_phase_group(
             id=phase_id,
             order=phase_data["order"],
             name=phase_data["name"],
+            members=(phase_id,),
         )
 
     return PhaseGroup(
@@ -96,7 +98,12 @@ def merge_phases(phase_group: PhaseGroup, merges: Iterable[Sequence[str]]) -> Ph
         raise ValueError(f"a phase id appears in more than one merge: {merges}")
 
     absorbed = {phase_id for ids in merges for phase_id in ids[1:]}
-    phases = {pid: phase for pid, phase in phase_group.phases.items() if pid not in absorbed}
+    members = {ids[0]: ids for ids in merges}
+    phases = {
+        pid: replace(phase, members=members.get(pid, phase.members))
+        for pid, phase in phase_group.phases.items()
+        if pid not in absorbed
+    }
     label = "_".join("+".join(ids) for ids in merges)
     return replace(phase_group, name=f"{phase_group.name}_{label}", phases=phases)
 

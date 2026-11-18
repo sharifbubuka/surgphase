@@ -16,11 +16,16 @@ def phase_prompts(
     if unknown or not styles:
         raise ValueError(f"styles must be a non-empty subset of {PROMPT_STYLES}, got {styles}")
     phases = ordered_phases(phase_group)
-    missing = {phase.id for phase in phases} - set(prompts)
+    missing = {member for phase in phases for member in phase.members} - set(prompts)
     if missing:
         raise KeyError(f"no prompts for phase ids {sorted(missing)}")
     return [
-        [prompt.message for style in styles for prompt in getattr(prompts[phase.id], style)]
+        [
+            prompt.message
+            for member in phase.members
+            for style in styles
+            for prompt in getattr(prompts[member], style)
+        ]
         for phase in phases
     ]
 

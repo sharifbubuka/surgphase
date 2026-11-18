@@ -8,6 +8,7 @@ import torch
 
 from surgphase.config import (
     EMBEDDINGS_DIR,
+    FRAME_CACHE_DIR,
     MODEL_NUM_FRAMES,
     MODEL_WEIGHTS_DIR,
     MODELS,
@@ -33,6 +34,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--clip-stride", type=int, default=1)
     parser.add_argument("--frames-root", type=Path, default=ROOT_DIR)
     parser.add_argument("--cache-dir", type=Path, default=EMBEDDINGS_DIR)
+    parser.add_argument(
+        "--frame-cache-dir",
+        type=Path,
+        default=FRAME_CACHE_DIR,
+        help="Letterboxed frames are cached here once and shared by every letterbox model",
+    )
     parser.add_argument("--weights-dir", type=Path, default=MODEL_WEIGHTS_DIR)
     parser.add_argument("--device", default=default_device())
     parser.add_argument(
@@ -82,7 +89,13 @@ def main() -> int:
                     continue
                 start = time.perf_counter()
                 embeddings = load_or_encode(
-                    args.cache_dir, spec, surgery, encoder, batch_size, args.num_workers
+                    args.cache_dir,
+                    spec,
+                    surgery,
+                    encoder,
+                    batch_size,
+                    args.num_workers,
+                    args.frame_cache_dir,
                 )
                 print(
                     f"{model_name} {surgery.id} @ {fps:g} fps: {tuple(embeddings.shape)} "

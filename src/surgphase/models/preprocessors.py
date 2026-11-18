@@ -1,5 +1,6 @@
 from collections.abc import Callable
 
+import numpy as np
 import torch
 from PIL import Image
 from torchvision import transforms as T
@@ -34,16 +35,26 @@ class Letterbox:
         self.interpolation = interpolation
 
     def __call__(self, image: Image.Image) -> torch.Tensor:
+        return self.finish(self.resize(image))
+
+    def resize(self, image: Image.Image) -> Image.Image:
         image = image.convert("RGB")
         scale = self.size / max(image.size)
         width = max(1, round(image.width * scale))
         height = max(1, round(image.height * scale))
-        image = TF.resize(image, [height, width], self.interpolation, antialias=True)
+        return TF.resize(image, [height, width], self.interpolation, antialias=True)
+
+    def finish(self, image: Image.Image | np.ndarray) -> torch.Tensor:
         tensor = TF.normalize(TF.to_tensor(image), self.mean, self.std)
+        height, width = tensor.shape[-2:]
         left = (self.size - width) // 2
         top = (self.size - height) // 2
         padding = [left, top, self.size - width - left, self.size - height - top]
         return TF.pad(tensor, padding, fill=0.0)
+
+    @property
+    def cache_key(self) -> str:
+        return f"letterbox{self.size}_{self.interpolation.value}"
 
     def __repr__(self) -> str:
         return f"{type(self).__name__}(size={self.size}, mean={self.mean}, std={self.std})"

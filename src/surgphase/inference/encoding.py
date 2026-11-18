@@ -27,7 +27,7 @@ class FrameDataset(Dataset):
 @torch.no_grad()
 def encode_sequence(
     encoder: BaseVideoEncoder,
-    frame_paths: Sequence[str | Path],
+    frames: Sequence[str | Path] | Dataset,
     clip_length: int,
     clip_stride: int,
     batch_size: int,
@@ -35,8 +35,10 @@ def encode_sequence(
 ) -> torch.Tensor:
     if min(clip_length, clip_stride, batch_size) < 1:
         raise ValueError("clip_length, clip_stride and batch_size must be >= 1")
+    if not isinstance(frames, Dataset):
+        frames = FrameDataset(frames, encoder.preprocessor)
     loader = DataLoader(
-        FrameDataset(frame_paths, encoder.preprocessor),
+        frames,
         batch_size=batch_size,
         shuffle=False,
         num_workers=num_workers,
@@ -44,10 +46,10 @@ def encode_sequence(
     history = (clip_length - 1) * clip_stride
     offsets = torch.arange(clip_length - 1, -1, -1) * clip_stride
     buffer, start, outputs = None, 0, []
-    for frames in tqdm(loader, desc=f"Encoding with {encoder.name}", unit="batch"):
-        buffer = frames if buffer is None else torch.cat([buffer, frames])
+    for batch in tqdm(loader, desc=f"Encoding with {encoder.name}", unit="batch"):
+        buffer = batch if buffer is None else torch.cat([buffer, batch])
         end = start + len(buffer)
-        positions = torch.arange(end - len(frames), end)
+        positions = torch.arange(end - len(batch), end)
         indices = (positions[:, None] - offsets).clamp(min=0) - start
         outputs.append(encoder.encode_video(buffer[indices]).float())
         keep = min(history, len(buffer))

@@ -49,6 +49,8 @@ PHASE_GROUP_FILE = ROOT_DIR / "assets/phases/default.json"
 
 PROMPTS_FILE = ROOT_DIR / "assets/prompts/default.json"
 
+VIDEOS_DIR = ROOT_DIR / "assets/videos"
+
 FRAMES_DIR = ROOT_DIR / "assets/frames"
 
 ANNOTATIONS_DIR = ROOT_DIR / "assets/annotations"
@@ -56,6 +58,8 @@ ANNOTATIONS_DIR = ROOT_DIR / "assets/annotations"
 RESULTS_DIR = ROOT_DIR / "results"
 
 EMBEDDINGS_DIR = RESULTS_DIR / "embeddings"
+
+FRAME_CACHE_DIR = Path("/var/tmp/surgphase/frame_cache")
 
 MODEL_WEIGHTS_DIR = ROOT_DIR / "assets/models/weights"
 
@@ -90,10 +94,12 @@ __all__ = [
     "ROOT_DIR",
     "PHASE_GROUP_FILE",
     "PROMPTS_FILE",
+    "VIDEOS_DIR",
     "FRAMES_DIR",
     "ANNOTATIONS_DIR",
     "RESULTS_DIR",
     "EMBEDDINGS_DIR",
+    "FRAME_CACHE_DIR",
     "MODEL_WEIGHTS_DIR",
     "MODEL_NUM_FRAMES",
     "TEXT_ENCODER",

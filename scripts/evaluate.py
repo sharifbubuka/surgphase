@@ -71,6 +71,15 @@ class Prediction:
     variant: str
     surgery_id: str
     probabilities: np.ndarray
+    seed: str | None = None
+
+    @property
+    def file_variant(self) -> str:
+        if self.seed is None:
+            return self.variant
+        if self.seed == "ensemble":
+            return f"{self.variant}_ensemble"
+        return f"{self.variant}_seed{self.seed}"
 
 
 @dataclass(frozen=True)
@@ -93,6 +102,7 @@ class EvaluationRecord:
             "clip_stride": self.spec.clip_stride,
             "source": self.prediction.source,
             "variant": self.prediction.variant,
+            "seed": self.prediction.seed,
             "surgery_id": self.prediction.surgery_id,
             **asdict(self.decoding),
             **asdict(self.metrics),
@@ -144,7 +154,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--sequence-lr", type=float, default=5e-4, help="Learning rate for sequence heads"
     )
-    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument(
+        "--seeds",
+        type=int,
+        nargs="+",
+        default=[42],
+        help="Heads are trained once per seed; with several seeds every seed and their "
+        "probability average (seed 'ensemble') are evaluated",
+    )
     parser.add_argument(
         "--temporal-methods", nargs="+", choices=TEMPORAL_METHODS, default=TEMPORAL_METHODS
     )
@@ -188,6 +205,23 @@ def zeroshot_predictions(
             )
 
 
+def seeded_predictions(
+    seeds: list[int], source: str, variant: str, surgery_id: str, probabilities: list[np.ndarray]
+) -> Iterator[Prediction]:
+    if len(seeds) == 1:
+        yield Prediction(source, variant, surgery_id, probabilities[0])
+        return
+    for seed, member in zip(seeds, probabilities, strict=True):
+        yield Prediction(source, variant, surgery_id, member, str(seed))
+    yield Prediction(source, variant, surgery_id, np.mean(probabilities, axis=0), "ensemble")
+
+
+def set_seed(seed: int) -> None:
+    torch.manual_seed(seed)
+    random.seed(seed)
+    np.random.seed(seed)
+
+
 def frame_head_predictions(
     args: argparse.Namespace,
     surgeries: dict[str, Surgery],
@@ -198,18 +232,23 @@ def frame_head_predictions(
     embedding_dim = next(iter(embeddings.values())).shape[1]
     for head_type in args.head_types:
         for fold in leave_one_surgery_out(list(surgeries)):
-            torch.manual_seed(args.seed)
-            head = build_head(head_type, embedding_dim, num_phases)
-            fit(
-                head,
-                frame_split(surgeries, embeddings, fold.train),
-                frame_split(surgeries, embeddings, [fold.val]),
-                num_phases,
-                config,
-                args.device,
+            probabilities = []
+            for seed in args.seeds:
+                set_seed(seed)
+                head = build_head(head_type, embedding_dim, num_phases)
+                fit(
+                    head,
+                    frame_split(surgeries, embeddings, fold.train),
+                    frame_split(surgeries, embeddings, [fold.val]),
+                    num_phases,
+                    config,
+                    args.device,
+                )
+                logits = predict_logits(head, embeddings[fold.test], args.device)
+                probabilities.append(logits.softmax(dim=1).numpy())
+            yield from seeded_predictions(
+                args.seeds, "frame_head", head_type, fold.test, probabilities
             )
-            logits = predict_logits(head, embeddings[fold.test], args.device)
-            yield Prediction("frame_head", head_type, fold.test, logits.softmax(dim=1).numpy())
 
 
 def sequence_head_predictions(
@@ -229,19 +268,23 @@ def sequence_head_predictions(
     )
     variant = f"tcn{args.sequence_stages}x{args.sequence_layers}"
     for fold in leave_one_surgery_out(list(surgeries)):
-        torch.manual_seed(args.seed)
-        random.seed(args.seed)
-        head = SequenceHead(head_config)
-        fit_sequence(
-            head,
-            sequence_split(surgeries, embeddings, fold.train),
-            sequence_split(surgeries, embeddings, [fold.val]),
-            num_phases,
-            config,
-            args.device,
+        probabilities = []
+        for seed in args.seeds:
+            set_seed(seed)
+            head = SequenceHead(head_config)
+            fit_sequence(
+                head,
+                sequence_split(surgeries, embeddings, fold.train),
+                sequence_split(surgeries, embeddings, [fold.val]),
+                num_phases,
+                config,
+                args.device,
+            )
+            logits = predict_logits(head, embeddings[fold.test], args.device)
+            probabilities.append(logits.softmax(dim=1).numpy())
+        yield from seeded_predictions(
+            args.seeds, "sequence_head", variant, fold.test, probabilities
         )
-        logits = predict_logits(head, embeddings[fold.test], args.device)
-        yield Prediction("sequence_head", variant, fold.test, logits.softmax(dim=1).numpy())
 
 
 def evaluate_predictions(
@@ -254,7 +297,7 @@ def evaluate_predictions(
     predictions_dir: Path,
 ) -> list[EvaluationRecord]:
     hmms = leave_one_out_hmms(
-        {s.id: s.labels[s.labelled] for s in surgeries.values()},
+        {s.id: s.labels for s in surgeries.values()},
         len(phase_group.phases),
         args.hmm_pseudocount,
     )
@@ -263,7 +306,7 @@ def evaluate_predictions(
     records = []
     for prediction in predictions:
         surgery = surgeries[prediction.surgery_id]
-        file = predictions_file(spec, fps, prediction.source, prediction.variant)
+        file = predictions_file(spec, fps, prediction.source, prediction.file_variant)
         probabilities[file][surgery.id] = prediction.probabilities.astype(np.float32)
         for decoding in variants:
             hmm = hmms[surgery.id] if decoding.method in HMM_METHODS else None
@@ -337,11 +380,19 @@ def main() -> int:
                 if not new_records:
                     continue
                 records += new_records
-                best = max(new_records, key=lambda record: record.metrics.f1_macro)
+                per_config = defaultdict(list)
+                for record in new_records:
+                    per_config[
+                        (record.prediction.variant, record.prediction.seed, record.decoding)
+                    ].append(record.metrics.f1_macro)
+                (variant, seed, decoding), scores = max(
+                    per_config.items(), key=lambda item: np.mean(item[1])
+                )
                 print(
-                    f"{model_name} @ {fps:g} fps {source}: {len(new_records)} rows, best f1_macro "
-                    f"{best.metrics.f1_macro:.3f} ({best.prediction.variant}, "
-                    f"{best.decoding.method}, {best.prediction.surgery_id})"
+                    f"{model_name} @ {fps:g} fps {source}: {len(new_records)} rows, highest mean "
+                    f"f1_macro over {len(scores)} surgeries {np.mean(scores):.3f} ({variant}, seed {seed}, "
+                    f"{decoding.method}, window {decoding.window_seconds}, "
+                    f"causal {decoding.causal})"
                 )
             encoder.cache_clear()
             if torch.cuda.is_available():

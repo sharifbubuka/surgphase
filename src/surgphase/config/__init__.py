@@ -21,6 +21,13 @@ MODELS = [
     # "SurgMotion1B"
 ]
 
+MERGE_SCHEMES = {
+    "none": [],
+    "P5+P6": [("P5", "P6")],
+    "P3+P4_P5+P6": [("P3", "P4"), ("P5", "P6")],
+    "P2+P3+P4_P5+P6": [("P2", "P3", "P4"), ("P5", "P6")],
+}
+
 PROMPT_STYLES = ["narrative", "descriptive"]
 
 ZERO_SHOT_TEMPERATURE = 0.01
@@ -83,6 +90,7 @@ __all__ = [
     "FPS",
     "PATIENTS",
     "MODELS",
+    "MERGE_SCHEMES",
     "PROMPT_STYLES",
     "ZERO_SHOT_TEMPERATURE",
     "UNLABELLED",
